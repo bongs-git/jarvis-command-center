@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Jarvis Command Center</title>
+<meta name="description" content="A Jarvis-style stock command center for Meta Quest: floating charts, GEX levels, lead/lag, and a risk breaker in mixed reality.">
+<meta name="theme-color" content="#030914">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
+<style>
+  :root { --bg:#030914; --panel:#07152a; --line:#35d8ff; --gold:#e7b84a; --text:#e8f7ff; --dim:#8fb0c6; --red:#ff4f6d; --green:#2fe59f; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font-family: Rajdhani, 'Roboto Condensed', Arial, sans-serif; overflow:hidden; -webkit-tap-highlight-color: transparent; }
+  #scene, #scene canvas { position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+  .bar { position:fixed; top:0; left:0; right:0; display:flex; align-items:center; gap:10px; padding:12px 14px; padding-top:max(12px, env(safe-area-inset-top)); background:linear-gradient(#030914ee, #03091400); z-index:5; flex-wrap:wrap; pointer-events:none; }
+  .bar > * { pointer-events:auto; }
+  .brand { font-weight:700; letter-spacing:4px; color:var(--line); font-size:20px; margin-right:auto; text-shadow:0 0 12px #35d8ff66; }
+  .brand small { color:var(--gold); letter-spacing:2px; font-size:13px; display:block; margin-top:-2px; }
+  button, .btn { font-family:inherit; font-weight:700; letter-spacing:1.5px; font-size:15px; color:var(--text); background:#35d8ff14; border:1.5px solid #35d8ff88; border-radius:10px; padding:10px 14px; cursor:pointer; text-transform:uppercase; }
+  button:hover { background:#35d8ff2a; border-color:var(--line); }
+  button.primary { background:#35d8ff2e; border-color:var(--line); box-shadow:0 0 18px #35d8ff40; }
+  button.gold { border-color:#e7b84aaa; background:#e7b84a1a; }
+  #xr-hint { position:fixed; left:50%; bottom:max(16px, env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:5; background:#07152aee; border:1px solid #35d8ff55; border-radius:12px; padding:10px 16px; font-size:15px; color:var(--dim); text-align:center; max-width:92vw; }
+  #xr-hint b { color:var(--text); }
+  body.in-xr .bar, body.in-xr #xr-hint { display:none; }
+  #toast { position:fixed; left:50%; top:80px; transform:translate(-50%, -20px); opacity:0; transition:all .25s; background:#07152af2; border:1px solid var(--line); border-radius:10px; padding:10px 16px; z-index:20; font-size:16px; font-weight:600; pointer-events:none; }
+  #toast.show { opacity:1; transform:translate(-50%, 0); }
+  #settings { position:fixed; top:0; right:0; bottom:0; width:min(460px, 100vw); background:#050f1ef7; border-left:1.5px solid #35d8ff55; z-index:10; transform:translateX(102%); transition:transform .25s ease; overflow-y:auto; padding:18px 18px 40px; padding-top:max(18px, env(safe-area-inset-top)); backdrop-filter: blur(8px); }
+  #settings.open { transform:none; }
+  #settings h2 { margin:0 0 4px; letter-spacing:4px; color:var(--line); font-size:22px; }
+  #settings h3 { margin:22px 0 8px; letter-spacing:3px; color:var(--gold); font-size:15px; text-transform:uppercase; }
+  #settings p.note { color:var(--dim); font-size:14px; margin:4px 0 10px; line-height:1.35; font-family: system-ui, sans-serif; }
+  #settings a { color:var(--line); }
+  label { display:block; font-size:14px; letter-spacing:1px; color:var(--dim); margin:10px 0 4px; text-transform:uppercase; font-weight:600; }
+  input[type=text], input[type=password], input[type=number], textarea { width:100%; background:#020812; border:1.5px solid #35d8ff44; color:var(--text); border-radius:8px; padding:10px 11px; font-family:'JetBrains Mono', monospace; font-size:15px; }
+  input:focus, textarea:focus { outline:none; border-color:var(--line); box-shadow:0 0 0 3px #35d8ff22; }
+  textarea { min-height:110px; resize:vertical; line-height:1.4; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .row > input { flex:1; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
+  .check { display:flex; align-items:center; gap:10px; margin:8px 0; font-size:16px; text-transform:none; letter-spacing:0; color:var(--text); font-weight:600; }
+  .check input { width:20px; height:20px; accent-color: var(--line); }
+  .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:22px; position:sticky; bottom:-40px; padding:12px 0; background:#050f1ef7; }
+  .small { font-size:12px; padding:8px 10px; }
+  #levels-preview { color:var(--dim); font-size:13px; margin-top:6px; font-family:'JetBrains Mono', monospace; }
+  .closex { position:absolute; right:14px; top:max(14px, env(safe-area-inset-top)); }
+</style>
+</head>
+<body>
+<div id="scene"></div>
+
+<div class="bar">
+  <div class="brand">J.A.R.V.I.S.<small>COMMAND CENTER</small></div>
+  <button id="btn-ar" class="primary" hidden>Enter Mixed Reality</button>
+  <button id="btn-vr" hidden>Enter VR</button>
+  <button id="btn-install" class="gold" hidden>Install app</button>
+  <button id="btn-settings">Settings</button>
+</div>
+<div id="xr-hint" hidden>Preview mode. Drag to look around, tap the screens to use them. <b>Open this link in your Meta Quest browser</b> to put the command center in your room.</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<aside id="settings" aria-hidden="true">
+  <button type="button" id="s-close" class="closex small">Close</button>
+  <h2>SETTINGS</h2>
+  <p class="note">Everything here is saved on this device only. Your keys are only ever sent to the data provider they belong to.</p>
+  <form id="s-form" autocomplete="off">
+    <h3>You</h3>
+    <label for="s-name">Name Jarvis calls you</label>
+    <input id="s-name" type="text" maxlength="24">
+    <label for="s-symbols">Watchlist (up to 12, comma separated)</label>
+    <input id="s-symbols" type="text" placeholder="SPY, QQQ, IWM, TSLA, AMZN, MSFT">
+
+    <h3>Live data (free keys)</h3>
+    <p class="note">Without keys the app runs on clearly labelled <b>demo data</b>. Get a free key from <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io</a> for real-time prices, and one from <a href="https://twelvedata.com/register" target="_blank" rel="noopener">twelvedata.com</a> to load today's full candles (free plan: 8 requests/min, 800/day — the app paces itself).</p>
+    <label for="s-fh">Finnhub API key</label>
+    <div class="row"><input id="s-fh" type="password" spellcheck="false"><button type="button" id="s-fh-show" class="small">Show</button></div>
+    <label for="s-td">Twelve Data API key</label>
+    <div class="row"><input id="s-td" type="password" spellcheck="false"><button type="button" id="s-td-show" class="small">Show</button></div>
+
+    <h3>GEX levels</h3>
+    <p class="note">Paste your morning levels, one ticker per line. CW = call wall, PW = put wall, ZG = zero gamma / flip.</p>
+    <textarea id="s-levels" spellcheck="false" placeholder="IWM CW 250 PW 240 ZG 245&#10;SPY CW 690 PW 670 ZG 681&#10;QQQ CW 620 PW 600 ZG 612"></textarea>
+    <div id="levels-preview"></div>
+
+    <h3>Risk breaker</h3>
+    <div class="grid2">
+      <div><label for="s-account">Account size $</label><input id="s-account" type="number" min="100" step="100"></div>
+      <div><label for="s-maxloss">Max daily loss $</label><input id="s-maxloss" type="number" min="10" step="10"></div>
+      <div><label for="s-riskpct">Risk per trade %</label><input id="s-riskpct" type="number" min="0.1" step="0.1"></div>
+      <div><label for="s-stoppct">Stop, % of premium</label><input id="s-stoppct" type="number" min="5" max="100" step="5"></div>
+      <div><label for="s-consec">Losses before cooldown</label><input id="s-consec" type="number" min="1" max="10" step="1"></div>
+      <div><label for="s-cool">Cooldown minutes</label><input id="s-cool" type="number" min="1" max="240" step="1"></div>
+    </div>
+
+    <h3>Jarvis</h3>
+    <label class="check"><input id="s-voice" type="checkbox"> Jarvis speaks out loud</label>
+    <label class="check"><input id="s-a-levels" type="checkbox"> Alert when price crosses a GEX level</label>
+    <label class="check"><input id="s-a-hod" type="checkbox"> Alert on new high / low of day</label>
+    <label class="check"><input id="s-a-bells" type="checkbox"> Opening / closing bell</label>
+    <button type="button" id="s-test-voice" class="small">Test voice</button>
+
+    <div class="actions">
+      <button type="submit" class="primary">Save</button>
+      <button type="button" id="s-reset-layout" class="small">Reset layout</button>
+      <button type="button" id="s-reset-day" class="small">Reset today's P&amp;L</button>
+    </div>
+  </form>
+</aside>
+
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>
