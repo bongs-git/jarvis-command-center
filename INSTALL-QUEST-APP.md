@@ -11,7 +11,7 @@ You don't have to install anything. The website works in the Quest **Browser**: 
 The build takes about 5–10 minutes. When it finishes, the APK is attached to the **quest-app** release:
 `https://github.com/<you>/<repo>/releases/download/quest-app/jarvis-quest.apk`
 
-The repo must be named `<your-username>.github.io`, because the app checks `https://<your-username>.github.io/.well-known/assetlinks.json` to prove it belongs to this website.
+The app proves it belongs to this website by checking `https://<your-username>.github.io/.well-known/assetlinks.json`. If this repo isn't named `<your-username>.github.io`, that file lives in a separate `<your-username>.github.io` repo.
 
 ## 2. Turn on developer mode (one time)
 

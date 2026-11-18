@@ -38,12 +38,10 @@ jobs:
         run: |
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"
           REPO="${GITHUB_REPOSITORY#*/}"; REPO="${REPO,,}"
-          if [ "$REPO" != "$OWNER.github.io" ]; then
-            echo "::error::The Quest app verifies itself through https://$OWNER.github.io/.well-known/assetlinks.json, so this repo must be named $OWNER.github.io. Rename it in Settings, then run this workflow again."
-            exit 1
-          fi
           echo "HOST=$OWNER.github.io" >> "$GITHUB_ENV"
-          echo "BASE=" >> "$GITHUB_ENV"
+          if [ "$REPO" = "$OWNER.github.io" ]; then echo "BASE=" >> "$GITHUB_ENV"; else echo "BASE=/$REPO" >> "$GITHUB_ENV"; fi
+          # The app verifies itself through https://$OWNER.github.io/.well-known/assetlinks.json
+          # (served from the $OWNER.github.io repo when this is a project site).
 
       - uses: actions/setup-java@v4
         if: steps.gate.outputs.ok == 'true'
