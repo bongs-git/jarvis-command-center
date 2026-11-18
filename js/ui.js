@@ -18,6 +18,20 @@ export function initUI(app) {
   btnAR.addEventListener('click', enter('ar'));
   btnVR.addEventListener('click', enter('vr'));
 
+  // Installed Quest app (?app=quest): go straight into mixed reality, with a big start button as fallback.
+  const isQuestApp = new URLSearchParams(location.search).get('app') === 'quest';
+  const launch = $('launch');
+  if (isQuestApp) {
+    const start = async () => {
+      launch.hidden = true;
+      try { await app.enterXR('ar'); }
+      catch { try { await app.enterXR('vr'); } catch { launch.hidden = false; } }
+    };
+    $('launch-btn').addEventListener('click', start);
+    app.onXREnd = () => { launch.hidden = false; };
+    setTimeout(start, 400);
+  }
+
   // ---- settings drawer
   const drawer = $('settings');
   const fields = {

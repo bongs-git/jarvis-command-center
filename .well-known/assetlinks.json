@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.inigroup.jarvis",
+      "sha256_cert_fingerprints": [
+        "4A:A9:08:51:4C:C2:3D:EE:96:AE:27:93:B4:1A:B7:C6:15:B4:75:D2:65:43:D1:35:97:1F:D9:1F:CA:E9:01:0F"
+      ]
+    }
+  }
+]

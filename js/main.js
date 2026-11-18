@@ -509,6 +509,7 @@ app.enterXR = async (mode) => {
       rig.position.set(0, 1.6, 0); rig.rotation.set(0, 0, 0);
       renderer.setSize(window.innerWidth, window.innerHeight); fit2D();
       app.markDirty('all');
+      if (app.onXREnd) app.onXREnd();
     });
     app.jarvis.say(mode === 'ar' ? 'Command center online. Point and pull the trigger, or pinch, to use the screens. Grab a title bar to move one.' : 'Command center online.', 'info');
   } catch (err) {
