@@ -4,12 +4,14 @@ You don't have to install anything. The website works in the Quest **Browser**: 
 
 ## 1. One-time GitHub setup (on your phone or computer)
 
-1. In this repo, go to **Settings → Secrets and variables → Actions → New repository secret**.
+The build lives in the **bongs-git.github.io** repo, next to the verification file.
+
+1. In **bongs-git.github.io**, go to **Settings → Secrets and variables → Actions → New repository secret**.
 2. Name: `QUEST_KEYSTORE_PASSWORD`. Value: the signing password Claude gave you. Save.
-3. Go to **Actions → Build Quest app → Run workflow**.
+3. In that repo, go to **Actions → Build Quest app → Run workflow**.
 
 The build takes about 5–10 minutes. When it finishes, the APK is attached to the **quest-app** release:
-`https://github.com/<you>/<repo>/releases/download/quest-app/jarvis-quest.apk`
+`https://github.com/bongs-git/bongs-git.github.io/releases/download/quest-app/jarvis-quest.apk`
 
 The app proves it belongs to this website by checking `https://<your-username>.github.io/.well-known/assetlinks.json`. If this repo isn't named `<your-username>.github.io`, that file lives in a separate `<your-username>.github.io` repo.
 
