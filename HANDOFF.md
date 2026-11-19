@@ -39,6 +39,7 @@ The only client is `js/relay.js`. The function sources in `/supabase` are the so
 | `POST indai-brain {mode:"profile",op:"get"/"put",key,value?,mutation_id?}` | shared profile | `{key,value,updated_at}`. Use the localStorage keys, `plan` or `watchlist`. Send speech counter increments and a stable mutation UUID on retry. Missing values return null. |
 | `POST indai-brain {mode:"history",op:"list"/"clear",session?}` | saved conversation | `{turns:[]}`. Talk defaults to the same session on each device. Empty history resumes it. A stable talk `request_id` prevents duplicated stored turns on retry. |
 | `POST indai-brain {mode:"memory",op:"add",text,kind?}` | learned memory | Rows add `uses,last_used`. Kinds are fact, preference, rule or vocabulary. Talk can return `used_ids`. |
+| `POST indai-ears?symbols=QQQ,SPY` with `Content-Type: audio/wav` | server transcription | `{text,alternatives:string[],ms}`. 16 kHz mono 16-bit PCM, up to 30 s / 1 MB. Activate with `INDAI_STT_PROVIDER=deepgram` and the provider secret. |
 
 Rules: add fields freely, never rename or remove one; errors are `{ error: code, message }` with a real HTTP status;
 every function answers `OPTIONS` with open CORS; nothing secret is ever returned to the client.

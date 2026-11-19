@@ -15,3 +15,7 @@ entrypoint = "./indai-tv/index.ts"
 [functions.indai-jobs]
 verify_jwt = false
 entrypoint = "./indai-jobs/index.ts"
+
+[functions.indai-ears]
+verify_jwt = false
+entrypoint = "./indai-ears/index.ts"
