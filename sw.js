@@ -1,6 +1,6 @@
 // Offline shell for the installed app. Market data, fonts and voice models always go to the network
 // (the voice models are cached by the browser's own model cache after the first download).
-const CACHE = 'indai-v5';
+const CACHE = 'indai-v6';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './vendor/three.module.js', './vendor/three.core.js',
   './js/main.js', './js/ui.js', './js/hud.js', './js/panels.js', './js/feeds.js', './js/market.js', './js/store.js',
   './js/indai.js', './js/voice.js', './js/relay.js', './js/options.js', './js/analysis.js', './js/gestures.js', './js/speech.js', './js/signals.js', './js/scenes.js',
@@ -22,6 +22,6 @@ self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   // The big on-device voice runtime is fetched straight from the network (and the HTTP cache).
   if (url.pathname.includes('/vendor/ort/') || url.pathname.endsWith('voice-worker.js')) { e.respondWith(fetch(e.request).then(isolate)); return; }
-  // network first so updates show up right away; cache is the offline fallback
-  e.respondWith(fetch(e.request).then(res => { const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); return isolate(res); }).catch(() => caches.match(e.request).then(r => isolate(r) || caches.match('./index.html').then(isolate))));
+  // network first, always revalidated, so a new version shows up on the very next launch; cache is the offline fallback
+  e.respondWith(fetch(e.request, { cache: 'no-cache' }).then(res => { const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); return isolate(res); }).catch(() => caches.match(e.request).then(r => isolate(r) || caches.match('./index.html').then(isolate))));
 });
