@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS = {
     maxConsecLosses: 2,      // losses in a row before forced cooldown
     cooldownMin: 15,         // cooldown length, minutes
   },
+  scene: 'passthrough',      // passthrough (your room) or a virtual scene: loft, midnight, ocean, orbit, deck
   voice: true,
   voiceEngine: 'neural',     // 'neural' = INDAI's on-device voice (Kokoro), 'system' = the browser's own voice
   voiceName: 'af_heart',

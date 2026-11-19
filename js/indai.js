@@ -154,6 +154,13 @@ export class Indai {
       return up.find(w => app.settings.symbols.includes(w)) || null;
     };
     if (/^ (stop|cancel|quiet|shh|never mind|nevermind)( talking)? $/.test(t)) { this.voice.stopSpeaking(); return true; }
+    // scenes: passthrough or a virtual space
+    if (/\b(pass ?through|my (real )?room|real world|see my room)\b/.test(t) && !/\b(calls?|puts?)\b/.test(t)) { app.setScene('passthrough'); return true; }
+    if (/\b(next|another|different|change( the)?|switch( the)?) (scene|background|environment|space|view)\b/.test(t)) { app.cycleScene(1); return true; }
+    if (/\b(switch|change|go|take me|move|show|set|put me|background|scene|environment|space|view|bring up)\b/.test(t)) {
+      for (const [id, re] of [['loft', /\bloft\b/], ['midnight', /\b(midnight|penthouse|night city|city at night)\b/], ['ocean', /\b(ocean|beach|sunset|the sea)\b/], ['orbit', /\b(orbit|outer space|space station|above earth|in space)\b/], ['deck', /\b(command deck|the grid|classic (view|scene|look))\b/]]) if (re.test(t)) { app.setScene(id); return true; }
+      if (/\b(scenes|backgrounds|environments)\b/.test(t)) { app.openFocus('scenes'); return true; }
+    }
     if (/\b(repeat|say (that|it) again|come again)\b/.test(t)) { this.repeat(); return true; }
     if (/\b(brief|briefing|status|sitrep|how are we|market check|catch me up)\b/.test(t)) { app.brief(); return true; }
     if (/\bre ?cent(er|re)\b/.test(t)) { app.recenter(); this.say('Recentered.'); return true; }

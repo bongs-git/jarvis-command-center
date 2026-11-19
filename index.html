@@ -37,6 +37,7 @@
   #xr-hint { position:fixed; left:50%; bottom:max(16px, env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:5; background:rgba(12,18,29,.92); border:1px solid var(--border); border-radius:14px; padding:10px 16px; font-size:14px; color:var(--dim); text-align:center; max-width:92vw; backdrop-filter:blur(10px); }
   #xr-hint b { color:var(--text); font-weight:600; }
   body.in-xr .bar, body.in-xr #xr-hint { display:none; }
+  body.window-app #btn-install, body.window-app #xr-hint { display:none; }
   #launch { position:fixed; inset:0; z-index:15; display:flex; flex-direction:column; gap:14px; align-items:center; justify-content:center; background:radial-gradient(circle at 50% 40%, #0d1a2bcc, #05080ff5); }
   #launch[hidden] { display:none; }
   #launch h1 { margin:0; font-weight:600; font-size:44px; letter-spacing:2px; }
@@ -161,6 +162,11 @@
       <div><label for="s-consec">Losses before cooldown</label><input id="s-consec" type="number" min="1" max="10" step="1"></div>
       <div><label for="s-cool">Cooldown minutes</label><input id="s-cool" type="number" min="1" max="240" step="1"></div>
     </div>
+
+    <h3>Scene</h3>
+    <label for="s-scene">What's around the screens in the headset</label>
+    <select id="s-scene"></select>
+    <p class="note">Passthrough shows your real room (mixed reality). You can switch any time from the Scene button or by saying “switch to loft”.</p>
 
     <h3>INDAI voice</h3>
     <label class="check"><input id="s-voice" type="checkbox"> INDAI speaks out loud</label>

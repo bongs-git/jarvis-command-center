@@ -4,6 +4,7 @@ import { ema, vwap, fmtClock, fmtDuration, fmtHM, marketStatus, chartSession, IN
 import { LEADLAG } from './feeds.js';
 import { pnlGrid, positionSummary } from './options.js';
 import { STRATEGIES, PROFILES, buildPlan } from './signals.js';
+import { SCENES, sceneName } from './scenes.js';
 
 export const RAGC = { GREEN: C.up, AMBER: C.amber, RED: C.down };
 
@@ -766,9 +767,74 @@ export class PlanPanel extends Panel {
   }
 }
 
+
+// ---------------------------------------------------------------- Scenes (focus): passthrough or a virtual space
+function drawSceneArt(ctx, id, x, y, w, h, sky) {
+  ctx.save(); rrect(ctx, x, y, w, h, 18); ctx.clip();
+  const g = ctx.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, sky[0]); g.addColorStop(1, sky[1]);
+  ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+  const r = (a) => (Math.sin(a * 12.9898) * 43758.5453) % 1;
+  const skyline = (base, col, lit) => {
+    ctx.fillStyle = col; let bx = x;
+    for (let i = 0; bx < x + w; i++) { const bw = 18 + Math.abs(r(i + 1)) * 26, bh = h * (0.18 + Math.abs(r(i + 7)) * 0.32); ctx.fillRect(bx, y + h * base - bh, bw, bh + h); if (lit) { ctx.fillStyle = '#ffd77a'; for (let k = 0; k < 6; k++) ctx.fillRect(bx + 3 + (k % 2) * 8, y + h * base - bh + 6 + Math.floor(k / 2) * 9, 3, 3); ctx.fillStyle = col; } bx += bw + 2; }
+  };
+  if (id === 'passthrough') {
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x + w * 0.2, y + h * 0.25); ctx.lineTo(x + w * 0.8, y + h * 0.25); ctx.lineTo(x + w * 0.8, y + h * 0.75); ctx.lineTo(x + w * 0.2, y + h * 0.75); ctx.closePath(); ctx.stroke();
+    for (const [a, b] of [[[0, 0], [0.2, 0.25]], [[1, 0], [0.8, 0.25]], [[0, 1], [0.2, 0.75]], [[1, 1], [0.8, 0.75]]]) { ctx.beginPath(); ctx.moveTo(x + w * a[0], y + h * a[1]); ctx.lineTo(x + w * b[0], y + h * b[1]); ctx.stroke(); }
+    ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fillRect(x + w * 0.36, y + h * 0.58, w * 0.28, h * 0.1);
+  } else if (id === 'loft') {
+    skyline(0.82, 'rgba(150,170,195,0.9)', false);
+    ctx.fillStyle = '#1d1f22'; for (let i = 0; i <= 6; i++) ctx.fillRect(x + i * w / 6 - 3, y, 6, h);
+    ctx.fillRect(x, y + h * 0.45, w, 5); ctx.fillStyle = '#8a5a3a'; ctx.fillRect(x, y + h * 0.84, w, h * 0.16);
+  } else if (id === 'midnight') {
+    ctx.fillStyle = '#f2f0ff'; ctx.beginPath(); ctx.arc(x + w * 0.75, y + h * 0.22, 10, 0, 7); ctx.fill();
+    ctx.fillStyle = '#fff'; for (let i = 0; i < 25; i++) ctx.fillRect(x + Math.abs(r(i + 3)) * w, y + Math.abs(r(i + 9)) * h * 0.45, 2, 2);
+    skyline(0.86, '#121320', true);
+  } else if (id === 'ocean') {
+    ctx.fillStyle = '#fff1c4'; ctx.beginPath(); ctx.arc(x + w * 0.5, y + h * 0.62, 22, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = '#1a2440'; ctx.fillRect(x, y + h * 0.62, w, h * 0.38);
+    ctx.fillStyle = 'rgba(255,190,120,0.75)'; for (let i = 0; i < 6; i++) ctx.fillRect(x + w * 0.5 - 30 + i * 4, y + h * (0.66 + i * 0.05), 60 - i * 8, 3);
+  } else if (id === 'orbit') {
+    ctx.fillStyle = '#fff'; for (let i = 0; i < 40; i++) ctx.fillRect(x + Math.abs(r(i + 5)) * w, y + Math.abs(r(i + 2)) * h, 2, 2);
+    const eg = ctx.createRadialGradient(x + w * 0.6, y + h * 1.6, h * 0.3, x + w * 0.6, y + h * 1.6, h * 1.05);
+    eg.addColorStop(0, '#2d6fb0'); eg.addColorStop(0.92, '#1b4c86'); eg.addColorStop(1, 'rgba(120,180,255,0.9)');
+    ctx.fillStyle = eg; ctx.beginPath(); ctx.arc(x + w * 0.6, y + h * 1.6, h * 1.05, 0, 7); ctx.fill();
+  } else if (id === 'deck') {
+    ctx.strokeStyle = 'rgba(90,209,255,0.45)'; ctx.lineWidth = 2;
+    for (let i = -6; i <= 6; i++) { ctx.beginPath(); ctx.moveTo(x + w / 2 + i * 8, y + h * 0.55); ctx.lineTo(x + w / 2 + i * 60, y + h); ctx.stroke(); }
+    for (let k = 0; k < 5; k++) { const yy = y + h * (0.58 + k * k * 0.03); ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + w, yy); ctx.stroke(); }
+  }
+  ctx.restore();
+}
+export class ScenesPanel extends Panel {
+  constructor(app) { super({ id: 'scenes', title: 'Scenes', w: 1.12, h: 0.66 }); this.app = app; }
+  drawBody(ctx, a) {
+    const app = this.app, W = this.W;
+    this.button('close', W - 140, 10, 112, 40, 'Close', { size: 20, onClick: () => app.closeFocus() });
+    const pt = app.passthroughAvailable();
+    text(ctx, `Showing: ${sceneName(app.sceneShown)}`, W - 170, 40, { size: 20, weight: 500, color: C.dim, align: 'right' });
+    const cols = 3, gap = 22, tw = (a.w - gap * (cols - 1)) / cols, th = (a.h - gap - 20) / 2;
+    SCENES.forEach((sc, i) => {
+      const x = a.x + (i % cols) * (tw + gap), y = a.y + Math.floor(i / cols) * (th + gap);
+      const art = th - 74;
+      const off = sc.id === 'passthrough' && !pt;
+      const on = app.sceneShown === sc.id || (off && app.settings.scene === 'passthrough');
+      const hov = this.hoverBtn === 'sc:' + sc.id;
+      drawSceneArt(ctx, sc.id, x, y, tw, art, sc.sky);
+      if (off) { rrect(ctx, x, y, tw, art, 18); ctx.fillStyle = 'rgba(6,10,18,0.55)'; ctx.fill(); text(ctx, 'Mixed reality only', x + tw / 2, y + art / 2 + 8, { size: 20, weight: 600, color: C.text, align: 'center' }); }
+      rrect(ctx, x, y, tw, th, 20); ctx.lineWidth = on ? 4 : hov ? 3 : 1.5; ctx.strokeStyle = on ? C.gold : hov ? C.line : 'rgba(255,255,255,0.12)'; ctx.stroke();
+      text(ctx, (on ? '✓ ' : '') + sc.name, x + 16, y + art + 34, { size: 25, weight: 600, color: on ? C.gold : C.white, max: tw - 32 });
+      text(ctx, sc.note, x + 16, y + art + 62, { size: 18, weight: 500, color: C.dim, max: tw - 32 });
+      this.buttons.push({ id: 'sc:' + sc.id, x, y, w: tw, h: th, onClick: () => app.setScene(sc.id) });
+    });
+    text(ctx, 'Say “switch to loft”, “passthrough”, or “next scene”', a.x, a.y + a.h + 4, { size: 18, weight: 500, color: C.faint });
+  }
+}
+
 // ---------------------------------------------------------------- dock
 export class Dock extends Panel {
-  constructor(app) { super({ id: 'dock', w: 1.24, h: 0.11, header: false }); this.app = app; }
+  constructor(app) { super({ id: 'dock', w: 1.36, h: 0.11, header: false }); this.app = app; }
   drawBody(ctx) {
     const app = this.app, W = this.W, H = this.H, vs = app.indai.voice.state;
     const y = 20, h = H - 40;
@@ -778,6 +844,7 @@ export class Dock extends Panel {
       ['plan', app.day.plan ? 'Plan' : 'Start day', 1.0, { color: app.day.plan ? C.text : C.up, active: !app.day.plan, onClick: () => app.openPlan() }],
       ['calc', 'Calculator', 1.15, { onClick: () => app.openCalc() }],
       ['summary', app.consolidated ? 'Restore' : 'Summary', 1.05, { onClick: () => app.consolidated ? app.restoreAll() : app.consolidate() }],
+      ['scene', 'Scene', 0.95, { color: C.violet, active: app.focus === 'scenes', onClick: () => app.focus === 'scenes' ? app.closeFocus() : app.openFocus('scenes') }],
       ['recenter', 'Recenter', 1.05, { onClick: () => app.recenter() }],
       ['mute', app.indai.muted ? 'Unmute' : 'Mute', 0.85, { color: C.dim, active: app.indai.muted, onClick: () => app.toggleMute() }],
       app.inXR ? ['exit', 'Exit', 0.75, { color: C.down, onClick: () => app.exitXR() }] : ['settings', 'Settings', 0.95, { color: C.dim, onClick: () => app.openSettings() }],

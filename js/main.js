@@ -2,12 +2,13 @@ import * as THREE from 'three';
 import { loadSettings, saveSettings, loadDay, saveDay, freshDay, todayET, loadLayout, saveLayout, clearLayout, parseLevels } from './store.js';
 import { MarketFeed, LEADLAG } from './feeds.js';
 import { marketStatus, fmtDuration, etParts, INTERVAL_LABEL, isTradingDay, nextTradingDay, prevTradingDay, etToMs } from './market.js';
-import { TopBar, Watchlist, MainChart, LeadLag, Levels, RiskBreaker, IndaiPanel, AnalysisPanel, CalcPanel, DeepDivePanel, SummaryPanel, PlanPanel, Dock, nearestLevel } from './panels.js';
+import { TopBar, Watchlist, MainChart, LeadLag, Levels, RiskBreaker, IndaiPanel, AnalysisPanel, CalcPanel, DeepDivePanel, SummaryPanel, PlanPanel, ScenesPanel, Dock, nearestLevel } from './panels.js';
 import { STRATEGIES, PROFILES, buildPlan, temperature, scanSetups, suggestContract } from './signals.js';
 import { Indai } from './indai.js';
 import { relay } from './relay.js';
 import { bs, yearsTo } from './options.js';
 import { handPose, GestureTracker } from './gestures.js';
+import { SceneManager, SCENES, sceneName } from './scenes.js';
 import { fmtPrice, fmtMoney } from './hud.js';
 import { initUI } from './ui.js';
 
@@ -20,7 +21,7 @@ const LAYOUT = {
   watch: [-40, 0], risk: [40, 0],
   leadlag: [-72, 0.19], levels: [-72, -0.215], indai: [72, 0],
 };
-const FOCUS = ['analysis', 'calc', 'deep', 'summary', 'plan'];
+const FOCUS = ['analysis', 'calc', 'deep', 'summary', 'plan', 'scenes'];
 const COLLAPSIBLE = ['watch', 'chart', 'risk', 'leadlag', 'levels', 'indai'];
 const ETFS = new Set(['SPY', 'QQQ', 'IWM', 'DIA', 'SPX', 'XLF', 'XLE', 'SMH', 'TLT', 'GLD']);
 
@@ -544,31 +545,35 @@ const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerH
 camera.position.set(0, 1.6, 0);
 scene.add(camera);
 
-// environment (hidden in mixed reality so you see your room)
-const env = new THREE.Group();
-scene.add(env);
-{
-  const sky = new THREE.Mesh(new THREE.SphereGeometry(60, 32, 16), new THREE.ShaderMaterial({
-    side: THREE.BackSide, depthWrite: false,
-    uniforms: { top: { value: new THREE.Color('#0a1424') }, bottom: { value: new THREE.Color('#02050b') } },
-    vertexShader: 'varying vec3 vP; void main(){ vP = (modelMatrix*vec4(position,1.0)).xyz; gl_Position = projectionMatrix*viewMatrix*vec4(vP,1.0); }',
-    fragmentShader: 'uniform vec3 top; uniform vec3 bottom; varying vec3 vP; void main(){ float h = normalize(vP).y*0.5+0.5; gl_FragColor = vec4(mix(bottom, top, smoothstep(0.35,1.0,h)),1.0); }',
-  }));
-  env.add(sky);
-  const grid = new THREE.GridHelper(40, 80, 0x1f4f6b, 0x0c1d2b);
-  grid.material.transparent = true; grid.material.opacity = 0.4;
-  env.add(grid);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(1.0, 1.015, 96), new THREE.MeshBasicMaterial({ color: 0x5ad1ff, transparent: true, opacity: 0.3, side: THREE.DoubleSide }));
-  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.002; env.add(ring);
-  const n = 600, pos = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) {
-    const r = 4 + Math.random() * 18, th = Math.random() * Math.PI * 2, y = Math.random() * 10 - 1;
-    pos.set([Math.cos(th) * r, y, Math.sin(th) * r], i * 3);
-  }
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const pts = new THREE.Points(g, new THREE.PointsMaterial({ color: 0x8fdcff, size: 0.025, transparent: true, opacity: 0.5 }));
-  pts.name = 'dust'; env.add(pts);
+// spaces: passthrough (your room) or a virtual scene around the screens
+const spaces = new SceneManager(scene);
+app.scenes = SCENES;
+// Which space to show right now: passthrough only exists in a mixed-reality session.
+function effectiveScene() {
+  const want = app.settings.scene || 'loft';
+  if (want === 'passthrough') return app.inXR && app.xrMode === 'ar' ? 'passthrough' : app.inXR ? 'loft' : 'deck';
+  return want;
 }
+function applyScene() {
+  const id = spaces.set(effectiveScene());
+  app.sceneShown = id;
+  renderer.setClearColor(0x000000, id === 'passthrough' ? 0 : 1);
+  app.markDirty('scenes'); app.markDirty('dock');
+}
+app.passthroughAvailable = () => app.inXR && app.xrMode === 'ar';
+app.setScene = (id, { announce = true } = {}) => {
+  if (!SCENES.find(s => s.id === id)) return;
+  app.settings.scene = id; app.saveSettings();
+  applyScene();
+  if (!announce) return;
+  if (id === 'passthrough' && !app.passthroughAvailable()) say(app.inXR ? 'Passthrough needs mixed reality. Exit and tap Enter mixed reality to see your room behind the screens.' : 'Passthrough shows your room once you enter mixed reality on the Quest.', 'info');
+  else say(`${sceneName(id)}.`, 'info', { speak: false });
+};
+app.cycleScene = (dir = 1) => {
+  const list = SCENES.filter(s => s.id !== 'passthrough' || app.passthroughAvailable());
+  const i = Math.max(0, list.findIndex(s => s.id === app.sceneShown));
+  app.setScene(list[(i + dir + list.length) % list.length].id);
+};
 
 // the HUD rig: everything you see floats in here, placed around your head on recenter
 const rig = new THREE.Group();
@@ -597,7 +602,7 @@ const P = app.panels;
 P.top = new TopBar(app); P.chart = new MainChart(app); P.dock = new Dock(app);
 P.watch = new Watchlist(app); P.risk = new RiskBreaker(app);
 P.leadlag = new LeadLag(app); P.levels = new Levels(app); P.indai = new IndaiPanel(app);
-P.analysis = new AnalysisPanel(app); P.calc = new CalcPanel(app); P.deep = new DeepDivePanel(app); P.summary = new SummaryPanel(app); P.plan = new PlanPanel(app);
+P.analysis = new AnalysisPanel(app); P.calc = new CalcPanel(app); P.deep = new DeepDivePanel(app); P.summary = new SummaryPanel(app); P.plan = new PlanPanel(app); P.scenes = new ScenesPanel(app);
 const panelMeshes = [];
 const maxAniso = renderer.capabilities.getMaxAnisotropy();
 for (const [id, p] of Object.entries(P)) {
@@ -714,6 +719,7 @@ app.recenter = () => {
     rig.position.set(0, 1.6, 0); rig.rotation.set(0, 0, 0);
     view.yaw = 0; view.pitch = 0; updateView();
   }
+  spaces.follow(rig.position, rig.rotation.y);
 };
 
 // ------------------------------------------------------------------ 2D (non-headset) view
@@ -981,19 +987,18 @@ app.enterXR = async (mode) => {
   try {
     const session = await navigator.xr.requestSession(sessionMode, { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] });
     app.xrMode = mode;
-    env.visible = mode !== 'ar';
-    renderer.setClearColor(0x000000, mode === 'ar' ? 0 : 1);
     await renderer.xr.setSession(session);
     app.inXR = true;
+    applyScene();
     pendingRecenter = 3;
     document.body.classList.add('in-xr');
     app.markDirty('all');
     session.addEventListener('end', () => {
-      app.inXR = false; app.xrMode = null; env.visible = true;
-      renderer.setClearColor(0x000000, 0);
+      app.inXR = false; app.xrMode = null;
+      applyScene();
       document.body.classList.remove('in-xr');
       for (const p of xrPointers) { p.cursor.visible = false; p.drag = null; }
-      rig.position.set(0, 1.6, 0); rig.rotation.set(0, 0, 0);
+      rig.position.set(0, 1.6, 0); rig.rotation.set(0, 0, 0); spaces.follow(rig.position, 0);
       renderer.setSize(window.innerWidth, window.innerHeight); fit2D();
       app.markDirty('all');
       if (app.onXREnd) app.onXREnd();
@@ -1112,7 +1117,7 @@ function loop(time, frame) {
   orb.getObjectByName('core').material.color.set(vs.listening ? 0xfbbf24 : vs.transcribing || ind.thinking ? 0xa78bfa : vs.speaking ? 0x34d399 : 0x9fe6ff);
   const spin = ind.thinking || vs.transcribing ? 3 : 1;
   for (let i = 0; i < 3; i++) { const r = orb.getObjectByName('ring' + i); r.rotation.z += dt * spin * (0.4 + i * 0.35) * (i % 2 ? -1 : 1); r.rotation.y += dt * 0.2 * (i + 1); }
-  const dust = env.getObjectByName('dust'); if (dust) dust.rotation.y += dt * 0.004;
+  spaces.update(dt);
 
   if (app.feed.rev !== lastFeedRev) { lastFeedRev = app.feed.rev; FEED_PANELS.forEach(id => app.dirty.add(id)); }
   const sec = Math.floor(now / 1000);
@@ -1154,6 +1159,7 @@ async function boot() {
       new Promise(r => setTimeout(r, 2500)),
     ]);
   } catch {}
+  applyScene();
   app.recenter();
   fit2D();
   app.feed.start();

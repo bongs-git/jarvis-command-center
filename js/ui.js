@@ -23,6 +23,8 @@ export function initUI(app) {
   const btnAR = $('btn-ar'), btnVR = $('btn-vr'), hint = $('xr-hint');
   const check = async (mode) => { try { return navigator.xr ? await navigator.xr.isSessionSupported(mode) : false; } catch { return false; } };
   Promise.all([check('immersive-ar'), check('immersive-vr')]).then(([ar, vr]) => { btnAR.hidden = !ar; btnVR.hidden = !vr; hint.hidden = ar || vr; });
+  const isWindowApp = new URLSearchParams(location.search).get('app') === 'window';
+  if (isWindowApp) document.body.classList.add('window-app');
   const enter = (mode, onFail) => async () => {
     app.indai.voice.unlock();
     if (!app.indai.muted) app.indai.voice.preload({ tts: true });
@@ -30,6 +32,7 @@ export function initUI(app) {
     try { await app.enterXR(mode); }
     catch (e) {
       if (mic === 'granted-now') toast('Microphone allowed. Tap again to enter.');
+      else if (isWindowApp) toast('INDAI Window stays a window in your home. Open the INDAI app for mixed reality and scenes.');
       else toast('Could not start: ' + (e.message || e));
       onFail && onFail();
     }
@@ -53,6 +56,7 @@ export function initUI(app) {
   const drawer = $('settings');
   const f = (id) => $(id);
   const vname = $('s-vname');
+  $('s-scene').innerHTML = app.scenes.map(sc => `<option value="${sc.id}">${esc(sc.name)} · ${esc(sc.note)}</option>`).join('');
   vname.innerHTML = VOICES.map(v => `<option value="${v.id}">${esc(v.label)}</option>`).join('');
   function fill() {
     const s = app.settings;
@@ -61,6 +65,7 @@ export function initUI(app) {
     f('s-fh').value = s.finnhubKey; f('s-levels').value = s.levelsText;
     f('s-account').value = s.risk.account; f('s-maxloss').value = s.risk.maxDailyLoss; f('s-riskpct').value = s.risk.riskPct;
     f('s-stoppct').value = s.risk.stopPct; f('s-consec').value = s.risk.maxConsecLosses; f('s-cool').value = s.risk.cooldownMin;
+    f('s-scene').value = s.scene || 'passthrough';
     f('s-voice').checked = s.voice; f('s-vengine').value = s.voiceEngine; vname.value = s.voiceName; f('s-vspeed').value = s.voiceSpeed; f('s-mic').value = s.micEngine;
     f('s-depth').value = s.researchDepth; f('s-rate').value = +(s.rate * 100).toFixed(2); f('s-pass').value = s.researchPass;
     f('s-a-levels').checked = s.alerts.levels; f('s-a-hod').checked = s.alerts.hod; f('s-a-bells').checked = s.alerts.bells; f('s-a-tv').checked = s.alerts.tradingview !== false;
@@ -121,6 +126,7 @@ export function initUI(app) {
     r.maxConsecLosses = Math.round(num(f('s-consec'), r.maxConsecLosses, 1, 10));
     r.cooldownMin = Math.round(num(f('s-cool'), r.cooldownMin, 1, 240));
     s.voice = f('s-voice').checked; readVoice();
+    if (f('s-scene').value !== s.scene) app.setScene(f('s-scene').value, { announce: false });
     s.researchDepth = f('s-depth').value; s.rate = num(f('s-rate'), s.rate * 100, 0, 15) / 100; s.researchPass = f('s-pass').value.trim();
     s.alerts.levels = f('s-a-levels').checked; s.alerts.hod = f('s-a-hod').checked; s.alerts.bells = f('s-a-bells').checked; s.alerts.tradingview = f('s-a-tv').checked;
     app.applySettings(prev);

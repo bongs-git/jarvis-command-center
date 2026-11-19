@@ -9,15 +9,21 @@ INDAI is a voice-driven options trading command center that floats in your room.
 - **Trade analysis.** Say something like *"Hey INDAI, QQQ calls expiring today, 665 strike"*. INDAI pulls the options chain, Greeks, flow, put/call ratios, unusual activity, GEX, MACD/RSI/divergence, EMA clouds and VWAP. She runs Black-Scholes and Monte Carlo odds, gives a **RED / AMBER / GREEN** verdict with the reasons, and says it out loud. If the research key is set, she also reads today's news and events on the web before the final verdict.
 - **Options profit calculator.** A profit/loss grid by price and time, like optionsprofitcalculator.com, with a payoff chart, breakevens, max profit and loss, and chance of profit. Strategy presets cover long calls and puts, verticals, credit spreads, straddles, strangles and iron condors.
 - **Screens.** Main chart with GEX lines, watchlist, lead/lag, GEX levels, risk breaker, and the INDAI feed.
+- **Scenes.** Switch between **Passthrough** (your real room) and virtual spaces: a sunlit **Loft** with city views, a **Midnight** penthouse over a lit-up skyline, an **Ocean sunset** deck, **Orbit** above Earth, and the classic **Command deck**. Tap **Scene** on the dock or say "switch to loft", "passthrough" or "next scene"; it changes instantly without leaving the headset view.
 - **Hand gestures.** Pinch, then spread your fingers to "explode" a ticker into a deep dive. Bring your open hands together to collapse everything into one summary; pull them apart to bring the screens back.
 
 INDAI's analysis is information, not financial advice. You make every trade.
+
+## Two Quest apps
+
+- **INDAI**: opens straight into mixed reality, with the scene switcher.
+- **INDAI Window**: opens as a regular window in your Quest home (the Loft), next to your other apps.
 
 ## Talking to INDAI
 
 - On a Quest: hold **A** or **X**, tap **Talk to INDAI**, or point at the orb and pinch or pull the trigger.
 - On a computer: hold the **space bar**.
-- Things to try: "start my day", "brief me", "how's the market", "QQQ 665 calls today", "deep dive on Tesla", "open the calculator", "show IWM", "five minute chart", "log a loss of 50", "summary", "restore", "go conservative", "only EMA clouds and VWAP".
+- Things to try: "run a self-test", "switch to the loft", "start my day", "brief me", "how's the market", "QQQ 665 calls today", "deep dive on Tesla", "open the calculator", "show IWM", "five minute chart", "log a loss of 50", "summary", "restore", "go conservative", "only EMA clouds and VWAP".
 
 The voice and listening models run on the device itself, so voice works on the Quest. The first time, they download about 130 MB, which is then cached.
 

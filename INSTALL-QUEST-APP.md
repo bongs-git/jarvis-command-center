@@ -11,7 +11,8 @@ The build lives in the **bongs-git.github.io** repo, next to the verification fi
 3. In that repo, go to **Actions → Build Quest app → Run workflow**.
 
 The build takes about 5–10 minutes. When it finishes, the APK is attached to the **quest-app** release:
-`https://github.com/bongs-git/bongs-git.github.io/releases/download/quest-app/indai-quest.apk`
+`https://github.com/bongs-git/bongs-git.github.io/releases/download/quest-app/indai-quest.apk` (INDAI: mixed reality and scenes)
+`https://github.com/bongs-git/bongs-git.github.io/releases/download/quest-app/indai-window.apk` (INDAI Window: a window in your Quest home)
 
 The app proves it belongs to this website by checking `https://<your-username>.github.io/.well-known/assetlinks.json`. If this repo isn't named `<your-username>.github.io`, that file lives in a separate `<your-username>.github.io` repo.
 
@@ -27,7 +28,7 @@ Use either option:
 - **SideQuest** (easiest): install SideQuest on your computer, plug in the Quest with a USB-C cable, allow USB debugging in the headset, and drag `indai-quest.apk` onto SideQuest.
 - **adb**: `adb install -r indai-quest.apk`
 
-On the Quest, open **Library → Unknown Sources → INDAI**.
+Install either or both the same way. On the Quest, open **Library → Unknown Sources → INDAI** or **INDAI Window**.
 
 ## Updating
 
