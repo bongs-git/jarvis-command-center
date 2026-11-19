@@ -42,4 +42,6 @@ Still to try on real devices: the on-device voice and microphone on an iPhone an
 | 2026-11-19 | Undo also takes back the cooldown that the undone loss started | js/app.js `undoTrade` |
 | 2026-11-19 | Calculator for a ticker with no price yet snaps its strike to the chain | js/app.js `calcFromChain` |
 | 2026-11-19 | Add a ticker from the watchlist; type the win/loss amount; extended-hours move in the watchlist | js/views.js |
+| 2026-11-19 | Chart fits the session so far (no mostly-empty morning chart); wall, flip and VWAP labels never overlap | js/chart.js |
+| 2026-11-19 | Fresh prices the moment the app comes back to the foreground; quick retry after a failed quote pull | js/app.js `refreshNow` |
 
