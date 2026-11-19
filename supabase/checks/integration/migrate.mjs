@@ -27,6 +27,7 @@ const files = [
   ...readdirSync("supabase/migrations").filter((n) => n.endsWith(".sql")).sort().map((n) =>
     "supabase/migrations/" + n
   ),
+  "supabase/pending/retention_and_memory.sql",
 ];
 try {
   for (const name of files) {

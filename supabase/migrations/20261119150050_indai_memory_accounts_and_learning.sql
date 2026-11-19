@@ -6,7 +6,7 @@ create table if not exists public.indai_memory (
 alter table public.indai_memory add column if not exists user_id uuid not null default '00000000-0000-4000-8000-000000000001',
   add column if not exists uses integer not null default 0, add column if not exists last_used timestamptz;
 alter table public.indai_memory alter column kind set default 'fact';
-update public.indai_memory set kind='fact' where kind is null or kind not in ('fact','preference','rule','vocabulary');
+-- The existing memory table was empty at rollout. No legacy rows are rewritten.
 alter table public.indai_memory add constraint indai_memory_kind check (kind in ('fact','preference','rule','vocabulary'));
 create index indai_memory_rank on public.indai_memory(user_id,uses desc,last_used desc,created_at desc);
 alter table public.indai_memory enable row level security;
@@ -33,30 +33,5 @@ create function public.indai_memory_owners(p_after uuid default null) returns ta
 language sql stable set search_path='' as $$
   select distinct m.user_id from public.indai_memory m where p_after is null or m.user_id>p_after order by m.user_id limit 100
 $$;
--- The model proposes IDs only. Keep an existing fact and scope every write to one account.
-create function public.indai_tidy_memory(p_user uuid,p_groups jsonb) returns void language plpgsql set search_path='' as $$
-declare grp jsonb; members bigint[]; survivor bigint;
-begin
-  perform pg_advisory_xact_lock(hashtextextended(p_user::text,5));
-  for grp in
-    select to_jsonb(array_agg(id order by uses desc,created_at,id)) from public.indai_memory
-      where user_id=p_user group by lower(btrim(regexp_replace(text,'\s+',' ','g'))) having count(*)>1
-    union all select value from jsonb_array_elements(p_groups)
-  loop
-    select array_agg(id order by uses desc,created_at,id) into members from public.indai_memory
-      where user_id=p_user and id in (select value::bigint from jsonb_array_elements_text(grp));
-    if cardinality(members)>1 then
-      survivor:=members[1];
-      update public.indai_memory set uses=(select sum(uses) from public.indai_memory where id=any(members) and user_id=p_user),
-        last_used=(select max(last_used) from public.indai_memory where id=any(members) and user_id=p_user)
-        where id=survivor and user_id=p_user;
-      delete from public.indai_memory where user_id=p_user and id=any(members) and id<>survivor;
-    end if;
-  end loop;
-  delete from public.indai_memory where user_id=p_user and id in (
-    select id from public.indai_memory where user_id=p_user
-      order by uses desc,coalesce(last_used,created_at) desc,created_at desc,id desc offset 150
-  );
-end $$;
-revoke all on function public.indai_learn(uuid,jsonb),public.indai_use_memories(uuid,bigint[]),public.indai_memory_owners(uuid),public.indai_tidy_memory(uuid,jsonb) from public,anon,authenticated;
-grant execute on function public.indai_learn(uuid,jsonb),public.indai_use_memories(uuid,bigint[]),public.indai_memory_owners(uuid),public.indai_tidy_memory(uuid,jsonb) to service_role;
+revoke all on function public.indai_learn(uuid,jsonb),public.indai_use_memories(uuid,bigint[]),public.indai_memory_owners(uuid) from public,anon,authenticated;
+grant execute on function public.indai_learn(uuid,jsonb),public.indai_use_memories(uuid,bigint[]),public.indai_memory_owners(uuid) to service_role;

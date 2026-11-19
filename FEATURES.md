@@ -5,17 +5,17 @@ One line per user-visible feature, newest first. The Quest app and the standalon
 
 | Date | Feature | Where | web |
 |---|---|---|---|
-| 2026-11-19 | Brain spending has a daily token guard, and TradingView webhooks enforce a 16 KiB limit and three-day retention. | Backend BE-11 (pending deployment) | todo |
-| 2026-11-19 | Subscribed devices can receive A-grade setup notifications from completed bridge candles during market hours. | Backend BE-10 (pending deployment) | todo |
-| 2026-11-19 | Market responses identify source and feed delay, with an opt-in licensed real-time adapter. | Backend BE-9 (pending deployment) | todo |
-| 2026-11-19 | Email magic-link accounts isolate saved data and cap research and talk at 60 requests per rolling hour. | Backend BE-8 (pending deployment) | todo |
-| 2026-11-19 | Morning GEX refresh covers both scopes for the saved universe, retries missing tickers, and reports failures. | Backend BE-7 (pending deployment) | todo |
-| 2026-11-19 | Optional server transcription uses watchlist tickers and learned pronunciations. | Backend BE-6 (pending deployment) | todo |
-| 2026-11-19 | INDAI prioritizes frequently used memories and consolidates duplicate facts nightly. | Backend BE-5 (pending deployment) | todo |
-| 2026-11-19 | The last 16 turns follow a conversation between devices for six hours. | Backend BE-4 (pending deployment) | todo |
-| 2026-11-19 | Speech fixes, listening settings, watchlists and day plans sync across devices. | Backend BE-3 (pending deployment) | todo |
-| 2026-11-19 | Talk can stream the spoken reply as it is generated. | Backend BE-2 (pending deployment) | todo |
-| 2026-11-19 | Talk can explicitly skip web search for a latency-sensitive reply. | Backend BE-1 (pending deployment) | todo |
+| 2026-11-19 | Brain spending has a daily token guard, and TradingView webhooks enforce a 16 KiB limit and three-day retention. | Backend BE-11 (budget and bridge limits live, retention staged) | todo |
+| 2026-11-19 | Subscribed devices can receive A-grade setup notifications from completed bridge candles during market hours. | Backend BE-10 (deployed, VAPID and browser acceptance pending) | todo |
+| 2026-11-19 | Market responses identify source and feed delay, with an opt-in licensed real-time adapter. | Backend BE-9 (delayed feed live, licensing pending) | todo |
+| 2026-11-19 | Email magic-link accounts isolate saved data and cap research and talk at 60 requests per rolling hour. | Backend BE-8 (account isolation live, owner transfer staged) | todo |
+| 2026-11-19 | Morning GEX refresh covers both scopes for the saved universe, retries missing tickers, and reports failures. | Backend BE-7 (live, first deadline missed and coverage recovered) | todo |
+| 2026-11-19 | Optional server transcription uses watchlist tickers and learned pronunciations. | Backend BE-6 (deployed, provider activation pending) | todo |
+| 2026-11-19 | INDAI prioritizes frequently used memories and consolidates duplicate facts nightly. | Backend BE-5 (learning live, nightly cleanup staged) | todo |
+| 2026-11-19 | The last 16 turns follow a conversation between devices for six hours. | Backend BE-4 (live, authenticated) | todo |
+| 2026-11-19 | Speech fixes, listening settings, watchlists and day plans sync across devices. | Backend BE-3 (live, authenticated) | todo |
+| 2026-11-19 | Talk can stream the spoken reply as it is generated. | Backend BE-2 (live, first-delta timing monitored) | todo |
+| 2026-11-19 | Talk can explicitly skip web search for a latency-sensitive reply. | Backend BE-1 (live) | todo |
 | 2026-11-19 | Brand logo on the launch screen and app icons | index.html, icons/, brand/ | todo |
 | 2026-11-19 | Thinking brain "talk" mode: free conversation, runs commands from loose wording, fixes mishears | supabase/indai-brain, js/indai.js `converse` | todo |
 | 2026-11-19 | Long-term memory: "remember that …", "what do you remember" (shared across devices) | indai_memory table, js/indai.js | todo |

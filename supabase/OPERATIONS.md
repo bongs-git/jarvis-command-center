@@ -2,49 +2,52 @@
 
 This release targets the existing INDAI project `zptjziewsfuvfcogrikz`. Its SQL upgrades the deployed TradingView, GEX and memory tables. A new empty database needs the original TradingView tables first. Apply the ticket migrations in filename order and deploy the six functions from the same reviewed revision.
 
-## Hosted state recorded November 19
+## Hosted rollout on November 19, 2026
 
-The public brain status returned `configured:true`, `passcode:false` and `memory:true`. A live no-search request returned spoken text in 6.26 seconds. A separate live trade request returned all eleven verdict fields. The hosted streaming probe still returned a regular JSON reply. The public GEX table had 224 rows covering both scopes for 112 tickers, all dated November 16. The hosted job health route had yet to deploy.
+All six functions are deployed to `zptjziewsfuvfcogrikz`. The public headset key receives stateless talk and streamed speech. A signed-out request for saved history requires the existing owner passcode or a verified account. The live no-search probe returned spoken text in 1.47 seconds, and the live trade returned all eleven verdict fields. The hosted isolation, profile-merge and rate-limit checks used synthetic data inside a rolled-back transaction.
 
-## Deploy to the project
+The GEX table contains both scopes for 112 tickers. The 09:20 watchdog recorded 110 tickers still missing current levels. All 224 rows were current at 09:20:45 ET. After correcting the CBOE envelope's UTC timestamp, the worker verified 14 batches covering all 112 tickers. `kind=health` distinguishes the deadline result (`gex`) from the later completeness check (`gex-coverage`).
 
-Use an authenticated Supabase CLI 3.x session from the repository root. In the dashboard, review the active database backup, migration history and existing GEX jobs. If a previous refresh still writes the same rows, coordinate its retirement when the new job has completed its first full run. The dry run below lists exactly which migrations the CLI would apply.
+## Deploy and maintain the existing project
+
+The migrations in `supabase/migrations` use their actual hosted version numbers. The project also has seven migrations that predate this release. To use the CLI against this existing project, fetch the older history into a private temporary working directory. Keep its historical SQL local.
 
 ```bash
 project=zptjziewsfuvfcogrikz
-supabase migration list --remote="$project"
-supabase db push --remote="$project" --dry-run
+review_dir=$(mktemp -d)
+mkdir -p "$review_dir/supabase"
+cp supabase/config.toml "$review_dir/supabase/config.toml"
+supabase migration fetch --remote="$project" --workdir="$review_dir"
+cp supabase/migrations/*.sql "$review_dir/supabase/migrations/"
+supabase db push --remote="$project" --workdir="$review_dir" --dry-run
 ```
 
-In **Edge Functions → Secrets**, configure the values required for the features being enabled. Keep provider credentials, VAPID material and the owner passcode outside source control.
-
-| Setting | When it is needed |
-|---|---|
-| `ANTHROPIC_API_KEY` | Talk, researched trade and semantic memory consolidation. The most recent hosted check found the key configured. |
-| `INDAI_PASSCODE` | Continuity for the original signed-out headset. Before deploying accounts, set a strong owner passcode and enter it in the existing headset settings while private history and memory are in use. An authenticated user uses their own data regardless of this setting. |
-| `INDAI_DAILY_TOKEN_BUDGET` | Optional daily model allowance. The default is 250,000 tokens per New York calendar day. Conservative in-flight reservations can cause an earlier 429. |
-| `INDAI_STT_PROVIDER=deepgram`, `DEEPGRAM_API_KEY` | Enable only with the owner's selected speech account. Without these, the optional transcription route returns 503. |
-| `INDAI_MARKET_PROVIDER=massive`, `MASSIVE_API_KEY` | Enable after the owner selects and licenses the relevant real-time equities and options data. The owner account is eligible by default. `INDAI_MARKET_LICENSED_USERS` accepts additional licensed user UUIDs separated by commas. |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Web Push. Use a stable P-256 VAPID pair and a valid contact URI. Only the public key is exposed to subscribing clients. |
-
-The magic-link redirect must be registered under **Authentication → URL Configuration** for the actual website or app landing page. Email confirmations should be enabled. Confirm that the owner receives a real email before directing other users to sign in.
+For migrations in a later release, review the dry-run output and apply the reviewed changes from the same directory. Deploy functions from the repository root so the custom entrypoint paths and shared modules are included. The market relay uses the hosted JWT gateway. The jobs worker authenticates scheduled calls with its Vault token.
 
 ```bash
-supabase db push --remote="$project" --yes
 set -e
 for name in indai-jobs indai-brain indai-market indai-tv indai-ears indai-push; do
   supabase functions deploy "$name" --remote="$project" --yes
 done
-```
-
-Confirm every function deployed successfully. Then enable the scheduler destination. Vault already holds the generated job token. Adding the optional `indai_alert_url` HTTPS secret in Vault connects failed jobs to the owner's operations endpoint. PostgreSQL also emits a warning and notifies the `indai_job_failures` channel.
-
-```bash
-supabase db query --remote="$project" --file supabase/checks/schedule-target.sql
 supabase db advisors --remote="$project" --type all --level warn --fail-on error
 ```
 
-After the owner has completed the email magic link, use **Authentication → Users** to identify the verified owner UUID. In the SQL Editor run `select public.indai_link_owner('<verified-owner-uuid>'::uuid)`. This transfers the original saved rows and subscriptions to that account. The first person to sign up receives an ordinary empty account. Confirm the owner's saved memory from a signed-in client and a passcode-enabled headset.
+The scheduler target is configured in Vault. The optional `indai_alert_url` Vault entry connects job failures to the owner's HTTPS operations endpoint. PostgreSQL emits warnings and publishes to `indai_job_failures`. To measure first spoken delta after a deployment, run `select public.indai_dispatch('brain-check')` in the SQL Editor. The worker uses a fixed stateless question, records both timings, and verifies every received delta against the final spoken text.
+
+The nightly three-day bridge purge, the 150-row memory cap, semantic compaction and the administrative transfer of a legacy owner's data are staged in `supabase/pending/retention_and_memory.sql`. Applying that file schedules real removal of eligible records. Once approved and applied, move the file into `supabase/migrations` using the version recorded by the project. Private learning, profile sync, saved conversations and authenticated accounts already have their database objects. Until owner transfer is enabled, an administrator can identify the verified owner in **Authentication → Users** and retain that UUID for the later link.
+
+## Owner-controlled configuration
+
+| Setting | Purpose |
+|---|---|
+| `ANTHROPIC_API_KEY` | Active for talk and trade. |
+| `INDAI_PASSCODE` | Set an owner-chosen secret in Edge Function Secrets, then enter it in the original headset's settings for signed-out access to private memory. |
+| `INDAI_DAILY_TOKEN_BUDGET` | Optional override for the default 250,000-token New York calendar day. |
+| `INDAI_STT_PROVIDER=deepgram`, `DEEPGRAM_API_KEY` | Enable the optional server transcription adapter after selecting the provider. |
+| `INDAI_MARKET_PROVIDER=massive`, `MASSIVE_API_KEY` | Enable an entitled real-time feed after licensing the relevant data. `INDAI_MARKET_LICENSED_USERS` takes additional licensed user UUIDs. |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Set the stable owner-managed signing pair and contact URI in Edge Function Secrets to enable browser push. |
+
+Register the actual website or app landing URL under **Authentication → URL Configuration** for email magic links. Confirm the owner's email sign-in before onboarding other users.
 
 ## Verify live behavior
 

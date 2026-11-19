@@ -18,7 +18,7 @@ written contract, so it can be built and tested from anywhere.
 ## The contract (do not break without agreeing a version bump)
 
 Base URL `https://zptjziewsfuvfcogrikz.supabase.co`. Clients send the public project key as `apikey`. Send the signed-in user’s access token as `Authorization: Bearer`, or the public key for a signed-out request.
-The only client is `js/relay.js`. The function sources in `/supabase` are the source of truth for response shapes; the original shapes were checked against the deployed brain function. Additions marked pending in `FEATURES.md` describe the release candidate.
+The only client is `js/relay.js`. The function sources in `/supabase` are the source of truth for response shapes; the original shapes were checked against the deployed brain function. `FEATURES.md` records which hosted features are active and which still need configuration.
 
 | Endpoint | Purpose | Shape |
 |---|---|---|
@@ -35,7 +35,7 @@ The only client is `js/relay.js`. The function sources in `/supabase` are the so
 | `POST … {mode:"memory", op:"list"/"add"/"forget", text?, ids?}` | long-term memory | `{ memory: [{ id, kind, text, created_at }] }` |
 | `GET /rest/v1/indai_gex_levels` | morning GEX levels | rows per ticker and scope |
 | `POST indai-brain {mode:"talk",search:false,…}` | answer from supplied context | same talk envelope, empty sources |
-| `POST indai-brain {mode:"talk",stream:true,…}` | SSE | `data: {"delta":"…"}`, one final talk envelope, then `data: [DONE]`. A failure after speech starts sends an error event and closes. |
+| `POST indai-brain {mode:"talk",stream:true,…}` | SSE | `data: {"delta":"…"}`, one final talk envelope, then `data: [DONE]`. Once the upstream accepts the request, an SSE comment opens the connection. Later failures send an error event and close. |
 | `POST indai-brain {mode:"profile",op:"get"/"put",key,value?,mutation_id?}` | shared profile | `{key,value,updated_at}`. Use the localStorage keys, `plan` or `watchlist`. Send speech counter increments and a stable mutation UUID on retry. Missing values return null. |
 | `POST indai-brain {mode:"history",op:"list"/"clear",session?}` | saved conversation | `{turns:[]}`. Talk defaults to the same session on each device. Empty history resumes it. A stable talk `request_id` prevents duplicated stored turns on retry. |
 | `POST indai-brain {mode:"memory",op:"add",text,kind?}` | learned memory | Rows add `uses,last_used`. Kinds are fact, preference, rule or vocabulary. Talk can return `used_ids`. |
@@ -51,12 +51,12 @@ every function answers `OPTIONS` with open CORS; nothing secret is ever returned
 
 ## Back-end backlog (ChatGPT), in priority order
 
-1. **Thinking key.** Hosted status reported `configured:true` on November 19, 2026. A no-search talk probe returned spoken text in 6.26 seconds. The target is under three seconds. Run `supabase/checks/brain-live.sh` after deployment.
+1. **Thinking key.** Hosted status reported `configured:true` on November 19, 2026. A no-search talk probe returned spoken text in 1.47 seconds after rollout. The target is under three seconds. Run `supabase/checks/brain-live.sh` after deployment.
 2. **Streaming talk.** Add `mode:"talk", stream:true` returning server-sent events (`{delta}` chunks of `spoken`, then one final `{result}`), so INDAI starts speaking on the first sentence.
 3. **Server speech-to-text (optional accuracy upgrade).** `POST /functions/v1/indai-ears` taking 16 kHz mono WAV, returning `{ text, alternatives[] }`. The client already has a single `transcribe()` seam in `js/voice.js` to plug it into.
 4. **Sync what she learns.** Table + endpoints for the speech profile (`indai.speech.v1` and `indai.ears.v1` in localStorage today) so the headset, phone and laptop share one learned profile: `mode:"profile", op:"get"|"put"`.
-5. **Accounts.** Today it is single-user with a public key and an optional passcode. Add Supabase Auth and row-level security before anyone else uses it.
-6. **Morning GEX job.** `indai_gex_levels` last refreshed 11-16; make the 9:14 ET job reliable and alert on failure.
+5. **Accounts.** Email accounts and scoped database access are live. Configure an owner passcode for the signed-out headset. Legacy-owner transfer is staged.
+6. **Morning GEX job.** The scheduler starts at 09:14 ET, retries at 09:17 and audits coverage at 09:20. The November 19 deadline was missed and all 112 tickers subsequently had both scopes.
 7. **Real-time data.** Replace the 15-minute delayed CBOE relay with a licensed real-time source when the owner picks one; keep the response shapes.
 8. **Push alerts.** Web Push for signals when the app is closed (the website will need this on phones).
 
