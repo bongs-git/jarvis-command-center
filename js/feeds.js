@@ -1,5 +1,6 @@
 // Market data: demo simulator, Finnhub (real-time trades + quotes), Twelve Data (intraday candles).
-import { INTERVAL_MS, aggregate, chartSession, etParts, marketStatus } from './market.js';
+import { INTERVAL_MS, aggregate, chartSession, etParts, etToMs, marketStatus } from './market.js';
+import { relay } from './relay.js';
 
 const IVS = ['1min', '5min', '15min'];
 export const LEADLAG = ['SPY', 'QQQ', 'IWM'];
@@ -17,14 +18,14 @@ function gauss(rnd) { let u = 0, v = 0; while (u === 0) u = rnd(); while (v === 
 
 // Rough demo profiles. Demo prices are illustrative only and are always labelled DEMO.
 const PROFILE = {
-  SPY: { p: 680, beta: 1.0, vol: 0.00022, v: 90e3, step: 1 },
-  QQQ: { p: 610, beta: 1.2, vol: 0.00026, v: 60e3, step: 1 },
-  IWM: { p: 245, beta: 1.3, vol: 0.00040, v: 45e3, step: 1 },
-  TSLA: { p: 420, beta: 1.8, vol: 0.0011, v: 140e3, step: 5 },
-  AMZN: { p: 230, beta: 1.1, vol: 0.00055, v: 70e3, step: 2.5 },
-  MSFT: { p: 510, beta: 0.9, vol: 0.00045, v: 30e3, step: 5 },
-  NVDA: { p: 190, beta: 1.6, vol: 0.0009, v: 300e3, step: 2.5 },
-  AAPL: { p: 260, beta: 1.0, vol: 0.00045, v: 70e3, step: 2.5 },
+  SPY: { p: 749, beta: 1.0, vol: 0.00022, v: 90e3, step: 1 },
+  QQQ: { p: 662, beta: 1.2, vol: 0.00026, v: 60e3, step: 1 },
+  IWM: { p: 276, beta: 1.3, vol: 0.00040, v: 45e3, step: 1 },
+  TSLA: { p: 387, beta: 1.8, vol: 0.0011, v: 140e3, step: 5 },
+  AMZN: { p: 265, beta: 1.1, vol: 0.00055, v: 70e3, step: 2.5 },
+  MSFT: { p: 528, beta: 0.9, vol: 0.00045, v: 30e3, step: 5 },
+  NVDA: { p: 156, beta: 1.6, vol: 0.0009, v: 300e3, step: 2.5 },
+  AAPL: { p: 358, beta: 1.0, vol: 0.00045, v: 70e3, step: 2.5 },
 };
 function profileFor(sym) {
   if (PROFILE[sym]) return PROFILE[sym];
@@ -64,20 +65,105 @@ export class MarketFeed {
     this.stop();
     this.syms.clear();
     for (const s of this.trackedSymbols) this.sym(s);
-    const hasF = !!this.settings.finnhubKey, hasT = !!this.settings.twelveKey;
-    if (!hasF && !hasT) {
-      this.setStatus({ mode: 'demo', finnhubRest: 'off', finnhubWs: 'off', twelve: 'off', note: 'DEMO DATA — add free API keys in Settings for live prices' });
-      this.startDemo();
-      return;
-    }
-    this.setStatus({ mode: 'live', finnhubRest: hasF ? 'connecting' : 'off', finnhubWs: hasF ? 'connecting' : 'off', twelve: hasT ? 'connecting' : 'off', note: '' });
-    if (hasF) { this.fhQuotesAll(); this.fhConnect(); }
-    if (hasT) this.tdInitialLoad();
-    if (hasF && !hasT) this.setStatus({ note: 'Charts build from live trades since you opened the app. Add a Twelve Data key to load the full session.' });
-    if (!hasF && hasT) this.setStatus({ note: 'Prices refresh every minute from Twelve Data. Add a Finnhub key for tick-by-tick prices.' });
-    this.timers.push(setInterval(() => this.liveSchedule(), 15e3));
+    const hasF = !!this.settings.finnhubKey;
+    if (this.settings.dataMode === 'demo') { this.startDemoMode('Demo mode is on in Settings.'); return; }
+    this.setStatus({ mode: hasF ? 'live' : 'delayed', cboe: 'connecting', finnhubRest: 'off', finnhubWs: hasF ? 'connecting' : 'off', twelve: 'off', note: '' });
+    this.cboeFails = 0;
+    this.cboeKick();
+    if (hasF) this.fhConnect();
+    this.timers.push(setInterval(() => this.cboeTick(), 5000));
     this.timers.push(setInterval(() => this.tdPump(), 1000));
   }
+  startDemoMode(note) {
+    this.stop();
+    this.syms.clear();
+    for (const s of this.trackedSymbols) this.sym(s);
+    this.setStatus({ mode: 'demo', cboe: 'off', finnhubRest: 'off', finnhubWs: 'off', twelve: 'off', note: note || 'DEMO DATA' });
+    this.startDemo();
+  }
+
+  // ---------- CBOE delayed data via the INDAI relay (free, no keys) ----------
+  async cboeKick() {
+    const syms = this.trackedSymbols;
+    try {
+      await this.cboeSnapshot(syms);
+      this.setStatus({ cboe: 'ok' });
+      const first = [...new Set([this.settings.main, ...LEADLAG])];
+      await this.cboeBars(first);
+      await this.cboeBars(syms.filter(x => !first.includes(x)));
+    } catch (e) {
+      this.cboeFails++;
+      this.setStatus({ cboe: 'err', cboeErr: e.message });
+      if (this.cboeFails >= 2 && this.status.mode === 'delayed') this.startDemoMode("Couldn't reach market data, so this is demo data. It retries when you reopen the app.");
+      else setTimeout(() => this.cboeKick(), 4000);
+    }
+  }
+  async cboeTick() {
+    if (this.status.mode === 'demo') return;
+    const now = Date.now(), st = marketStatus(now).state;
+    const open = st === 'open' || st === 'pre' || st === 'post';
+    this.lastSnap ??= 0; this.lastBarsMain ??= 0; this.lastBarsRest ??= 0;
+    try {
+      if (now - this.lastSnap > (open ? 20e3 : 120e3)) { this.lastSnap = now; await this.cboeSnapshot(this.trackedSymbols); this.setStatus({ cboe: 'ok' }); }
+      const first = [...new Set([this.settings.main, ...LEADLAG])];
+      if (now - this.lastBarsMain > (st === 'open' ? 60e3 : 900e3)) { this.lastBarsMain = now; await this.cboeBars(first); }
+      if (now - this.lastBarsRest > (st === 'open' ? 180e3 : 1800e3)) { this.lastBarsRest = now; await this.cboeBars(this.trackedSymbols.filter(x => !first.includes(x))); }
+    } catch (e) { this.setStatus({ cboe: 'err', cboeErr: e.message }); }
+  }
+  async cboeSnapshot(syms) {
+    if (!syms.length) return;
+    const j = await relay.snapshot(syms);
+    const st = marketStatus().state;
+    for (const q of j.quotes || []) {
+      if (!q.ok || !(q.price > 0 || q.close > 0)) continue;
+      const s = this.sym(q.symbol);
+      s.prevClose = q.prevClose || s.prevClose; s.iv30 = q.iv30; s.cboeTime = q.timestamp;
+      if (q.open) s.dayOpen = q.open; if (q.high) s.high = q.high; if (q.low) s.low = q.low;
+      const liveTick = (s.lastTradeAt && Date.now() - s.lastTradeAt < 30e3 && this.status.finnhubWs === 'live') || (s.tvAt && Date.now() - s.tvAt < 150e3);
+      if (st === 'open') { if (!liveTick) { s.last = q.price; s.lastTradeAt = Date.now(); } s.ext = null; }
+      else { s.last = q.close > 0 ? q.close : q.price; s.ext = q.price > 0 && q.close > 0 && Math.abs(q.price - q.close) > 0.005 ? q.price : null; s.lastTradeAt = Date.now(); }
+      this.bump(s);
+    }
+    this.lastSnap = Date.now();
+  }
+  async cboeBars(syms) {
+    for (let i = 0; i < syms.length; i += 8) {
+      const j = await relay.bars(syms.slice(i, i + 8));
+      for (const [sym, d] of Object.entries(j.bars || {})) {
+        if (!d || !d.session || !Array.isArray(d.bars) || !d.bars.length) continue;
+        const [y, m, dd] = d.session.split('-').map(Number);
+        const base = etToMs(y, m, dd, 0, 0);
+        const bars = d.bars.map(b => ({ t: base + (b[0] - 1) * 60e3, o: b[1], h: b[2], l: b[3], c: b[4], v: b[5], cv: b[6], pv: b[7] }));
+        const s = this.sym(sym);
+        const lastT = bars[bars.length - 1].t;
+        const live = s.bars['1min'].filter(b => b.t > lastT);
+        s.bars['1min'] = [...bars, ...live];
+        s.bars['5min'] = []; s.bars['15min'] = [];
+        s.cboeBars = true;
+        this.bump(s);
+      }
+    }
+  }
+
+  // ---------- TradingView bridge (candles sent by the INDAI Bridge indicator) ----------
+  applyBridgeBar(sym, b, tf = '1') {
+    if (this.status.mode === 'demo' || !(b.c > 0)) return;
+    const s = this.sym(sym);
+    const iv = tf === '5' ? '5min' : tf === '15' ? '15min' : '1min';
+    const arr = s.bars[iv];
+    const bar = { t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v || 0 };
+    const i = arr.findIndex(x => x.t === bar.t);
+    if (i >= 0) arr[i] = bar; else { arr.push(bar); if (arr.length > 1 && arr[arr.length - 2].t > bar.t) arr.sort((p, q) => p.t - q.t); }
+    const newest = arr[arr.length - 1];
+    if (newest === bar) {
+      s.last = bar.c; s.lastTradeAt = Date.now(); s.tvAt = Date.now(); s.ext = null;
+      const sess = chartSession();
+      if (bar.t >= sess.open && bar.t < sess.close) { s.high = s.high == null ? bar.h : Math.max(s.high, bar.h); s.low = s.low == null ? bar.l : Math.min(s.low, bar.l); }
+    }
+    this.status.tvBridge = 'live'; this.status.tvAt = Date.now();
+    this.bump(s);
+  }
+  get bridgeLive() { return this.status.tvAt && Date.now() - this.status.tvAt < 180e3; }
 
   stop() {
     for (const t of this.timers) clearInterval(t);
@@ -132,7 +218,7 @@ export class MarketFeed {
     let base = s.prevClose;
     if (base == null) { const b = this.getBars(sym, '5min'); base = b.length ? b[0].o : s.dayOpen; }
     const chg = base ? s.last - base : 0;
-    return { sym, last: s.last, prevClose: s.prevClose, base, chg, pct: base ? (chg / base) * 100 : 0, high: s.high, low: s.low, lastTradeAt: s.lastTradeAt };
+    return { sym, last: s.last, prevClose: s.prevClose, base, chg, pct: base ? (chg / base) * 100 : 0, high: s.high, low: s.low, lastTradeAt: s.lastTradeAt, ext: s.ext ?? null, extPct: s.ext && s.last ? (s.ext / s.last - 1) * 100 : null, iv30: s.iv30 ?? null };
   }
 
   // ---------- demo ----------
@@ -242,7 +328,7 @@ export class MarketFeed {
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch { return; }
       if (m.type === 'trade' && Array.isArray(m.data)) {
-        for (const d of m.data) this.applyTrade(d.s, d.p, d.v, d.t);
+        for (const d of m.data) this.applyTrade(d.s, d.p, d.v, d.t, this.syms.get(d.s)?.cboeBars ? { updateIntervals: ['1min'] } : undefined);
       } else if (m.type === 'error') {
         this.setStatus({ finnhubWs: 'err', fhWsErr: m.msg || 'error' });
       }

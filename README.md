@@ -1,50 +1,34 @@
-# J.A.R.V.I.S. Command Center for Meta Quest
+# INDAI Command Center for Meta Quest
 
-A stock command center that floats in your room. Open it in the Meta Quest browser, tap **Enter Mixed Reality**, and the screens appear around you with your real room visible behind them.
+INDAI is a voice-driven options trading command center that floats in your room. Open it in the Meta Quest browser and tap **Enter mixed reality**. The screens appear around you, and INDAI talks you through the day.
 
-## What's on the screens
+## What INDAI does
 
-- **Main chart**: 5-minute candles (1m/5m/15m) with Ripster-style EMA clouds (5/12, 34/50), VWAP, and your GEX levels (call wall, put wall, zero gamma).
-- **Watchlist**: SPY, QQQ, IWM, TSLA, AMZN, MSFT by default (up to 12), with sparklines and the distance to the nearest GEX level. Tap a row to put it on the main chart.
-- **Lead / lag**: SPY vs QQQ vs IWM since the open, and which one is leading.
-- **GEX levels**: where price sits between your pasted levels.
-- **Risk breaker**: day P&L, daily loss limit, a cooldown after losses in a row, a position sizer, and a setup checklist. Sizing is locked while the breaker is tripped or cooling down.
-- **Jarvis**: spoken alerts (GEX level crosses, new high or low of day, opening and closing bell, breaker events) and a "Brief me" summary.
+- **Morning check-in.** INDAI takes the market's temperature: SPY, QQQ and IWM moves, VIX, gamma regime and GEX walls. Then she asks how much you're starting with, your minimum goal and how aggressive you want to be, and turns your answers into the day's plan. The plan sets risk per trade, a loss limit that trips the breaker, contracts per alert, and how many good trades it takes to reach the goal.
+- **Setup alerts.** She watches your watchlist on 5-minute bars using your playbook: EMA clouds (5/12, 34/50), VWAP reclaims and rejections, GEX wall bounces and breaks, and opening-range breakouts. Each setup is scored, and she only alerts when the score clears the bar for your aggressiveness level. Every alert comes with a suggested contract, size, stop and target. Alerts pause when the breaker trips, and after you hit your goal they either stop or tighten to A+ setups only.
+- **Trade analysis.** Say something like *"Hey INDAI, QQQ calls expiring today, 665 strike"*. INDAI pulls the options chain, Greeks, flow, put/call ratios, unusual activity, GEX, MACD/RSI/divergence, EMA clouds and VWAP. She runs Black-Scholes and Monte Carlo odds, gives a **RED / AMBER / GREEN** verdict with the reasons, and says it out loud. If the research key is set, she also reads today's news and events on the web before the final verdict.
+- **Options profit calculator.** A profit/loss grid by price and time, like optionsprofitcalculator.com, with a payoff chart, breakevens, max profit and loss, and chance of profit. Strategy presets cover long calls and puts, verticals, credit spreads, straddles, strangles and iron condors.
+- **Screens.** Main chart with GEX lines, watchlist, lead/lag, GEX levels, risk breaker, and the INDAI feed.
+- **Hand gestures.** Pinch, then spread your fingers to "explode" a ticker into a deep dive. Bring your open hands together to collapse everything into one summary; pull them apart to bring the screens back.
 
-## Using it on the Quest
+INDAI's analysis is information, not financial advice. You make every trade.
 
-1. Put on the headset, open **Browser**, and go to this site's link.
-2. Tap **Enter Mixed Reality** (or **Enter VR** for a dark virtual room).
-3. Point a controller and pull the trigger to press buttons. With hands, point and pinch.
-4. Move a screen by grabbing its title bar with the trigger or a pinch, or squeeze the grip anywhere on it. Your layout is saved.
-5. **Recenter** puts the screens back in front of you.
+## Talking to INDAI
 
-## Live data
+- On a Quest: hold **A** or **X**, tap **Talk to INDAI**, or point at the orb and pinch or pull the trigger.
+- On a computer: hold the **space bar**.
+- Things to try: "start my day", "brief me", "how's the market", "QQQ 665 calls today", "deep dive on Tesla", "open the calculator", "show IWM", "five minute chart", "log a loss of 50", "summary", "restore", "go conservative", "only EMA clouds and VWAP".
 
-With no keys, the app runs on **demo data**, which is clearly labelled and not real prices. For live data, open **Settings** and add two free keys:
+The voice and listening models run on the device itself, so voice works on the Quest. The first time, they download about 130 MB, which is then cached.
 
-- [Finnhub](https://finnhub.io/register): real-time trade prices over a live stream.
-- [Twelve Data](https://twelvedata.com/register): today's full intraday candles. The free plan allows 8 requests a minute and 800 a day, and the app paces itself to stay under both.
+## Market data, stacked
 
-Keys and settings are saved only in that browser on that device.
+1. **TradingView Bridge** (your subscription). Add [`tradingview/indai-bridge.pine`](tradingview/indai-bridge.pine) to a 1-minute chart and create one alert with your INDAI webhook link. INDAI then gets your watchlist's live candles every minute. It needs a paid TradingView plan with two-factor authentication turned on.
+2. **Finnhub** (optional free key in Settings): real-time stock trades.
+3. **CBOE** (always on, no key): quotes, intraday candles, full option chains with Greeks, and GEX. Delayed about 15 minutes.
 
-## GEX levels
+GEX levels come from your Morning GEX refresh each weekday, live from the options chain, from TradingView alerts that include levels, or from levels you paste in Settings.
 
-Paste one line per ticker in Settings, for example:
+## Other TradingView alerts
 
-```
-IWM CW 250 PW 240 ZG 245
-SPY call wall 690, put wall 670, zero gamma 681
-```
-
-## Voice
-
-Jarvis speaks wherever the browser supports speech. Voice commands use the browser's speech recognition and work only where it's available. Example commands: "show IWM", "five minute", "brief me", "log a loss of 50", "undo", "hide VWAP", "recenter".
-
-## Install as an app
-
-In a desktop or Android browser, use **Install app**. On the Quest, the site can be packaged as an APK with Meta's PWA tools. See `INSTALL-QUEST-APP.md`.
-
----
-
-This is for information and discipline only. It is not financial advice, and it never places trades.
+Any TradingView alert sent to the same webhook link is read out loud. Alerts that include levels such as `QQQ CW 700 PW 650 ZG 676` update the GEX lines on the chart.

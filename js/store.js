@@ -1,4 +1,4 @@
-// Settings + per-day state, kept in this device's browser storage only.
+// INDAI settings + per-day state, kept in this device's browser storage only.
 // API keys never leave the device except in requests to the data providers themselves.
 
 const SETTINGS_KEY = 'jarvis.settings.v1';
@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS = {
   symbols: ['SPY', 'QQQ', 'IWM', 'TSLA', 'AMZN', 'MSFT'],
   main: 'IWM',
   interval: '5min',
+  dataMode: 'auto',          // 'auto' = CBOE delayed (free), plus Finnhub real-time if a key is set; 'demo' = simulated
   finnhubKey: '',
   twelveKey: '',
   levelsText: '',            // pasted GEX levels, parsed by parseLevels()
@@ -22,7 +23,14 @@ export const DEFAULT_SETTINGS = {
     cooldownMin: 15,         // cooldown length, minutes
   },
   voice: true,
-  alerts: { levels: true, hod: true, breaker: true, bells: true },
+  voiceEngine: 'neural',     // 'neural' = INDAI's on-device voice (Kokoro), 'system' = the browser's own voice
+  voiceName: 'af_heart',
+  voiceSpeed: 0.95,
+  micEngine: 'auto',         // 'auto' = on-device Whisper on Quest, browser recognizer elsewhere
+  researchPass: '',          // optional passcode for INDAI's web research
+  researchDepth: 'fast',     // 'fast' or 'deep'
+  rate: 0.04,                // risk-free rate for options math
+  alerts: { levels: true, hod: true, breaker: true, bells: true, tradingview: true },
   show: { ema: true, vwap: true, gex: true },
 };
 
@@ -61,6 +69,7 @@ export function freshDay() {
   return {
     date: todayET(), pnl: 0, trades: [], consec: 0, cooldownUntil: 0, tripped: false,
     step: 50, premium: 1.0, checklist: [false, false, false, false],
+    plan: null, goalHit: false, signals: 0,
   };
 }
 export function loadDay() {

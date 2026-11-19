@@ -1,6 +1,6 @@
-# Installing Jarvis as a Quest app
+# Installing INDAI as a Quest app
 
-You don't have to install anything. The website works in the Quest **Browser**: open it and tap **Enter Mixed Reality**. The installed app adds a Jarvis icon to your Quest library and opens straight into mixed reality.
+You don't have to install anything. The website works in the Quest **Browser**: open it and tap **Enter Mixed Reality**. The installed app adds an INDAI icon to your Quest library and opens straight into mixed reality.
 
 ## 1. One-time GitHub setup (on your phone or computer)
 
@@ -11,7 +11,7 @@ The build lives in the **bongs-git.github.io** repo, next to the verification fi
 3. In that repo, go to **Actions → Build Quest app → Run workflow**.
 
 The build takes about 5–10 minutes. When it finishes, the APK is attached to the **quest-app** release:
-`https://github.com/bongs-git/bongs-git.github.io/releases/download/quest-app/jarvis-quest.apk`
+`https://github.com/bongs-git/bongs-git.github.io/releases/download/quest-app/indai-quest.apk`
 
 The app proves it belongs to this website by checking `https://<your-username>.github.io/.well-known/assetlinks.json`. If this repo isn't named `<your-username>.github.io`, that file lives in a separate `<your-username>.github.io` repo.
 
@@ -24,11 +24,11 @@ The app proves it belongs to this website by checking `https://<your-username>.g
 
 Use either option:
 
-- **SideQuest** (easiest): install SideQuest on your computer, plug in the Quest with a USB-C cable, allow USB debugging in the headset, and drag `jarvis-quest.apk` onto SideQuest.
-- **adb**: `adb install -r jarvis-quest.apk`
+- **SideQuest** (easiest): install SideQuest on your computer, plug in the Quest with a USB-C cable, allow USB debugging in the headset, and drag `indai-quest.apk` onto SideQuest.
+- **adb**: `adb install -r indai-quest.apk`
 
-On the Quest, open **Library → Unknown Sources → Jarvis**.
+On the Quest, open **Library → Unknown Sources → INDAI**.
 
 ## Updating
 
-The app loads the live website every time it opens, so changes to the site show up without reinstalling. To rebuild the APK, run the workflow again. Each build gets a higher version number and installs over the old one.
+If you have the old Jarvis app, the new one installs over it and shows up as INDAI. The app loads the live website every time it opens, so changes to the site show up without reinstalling. To rebuild the APK, run the workflow again. Each build gets a higher version number and installs over the old one.

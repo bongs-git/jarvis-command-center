@@ -3,94 +3,145 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Jarvis Command Center</title>
-<meta name="description" content="A Jarvis-style stock command center for Meta Quest: floating charts, GEX levels, lead/lag, and a risk breaker in mixed reality.">
-<meta name="theme-color" content="#030914">
+<title>INDAI Command Center</title>
+<meta name="description" content="INDAI: a voice-driven options trading command center for Meta Quest. Floating charts, GEX levels, an options profit calculator, trade-idea analysis with a RAG verdict, and a risk breaker.">
+<meta name="theme-color" content="#05080f">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" href="./icons/icon-192.png">
 <link rel="apple-touch-icon" href="./icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
 <style>
-  :root { --bg:#030914; --panel:#07152a; --line:#35d8ff; --gold:#e7b84a; --text:#e8f7ff; --dim:#8fb0c6; --red:#ff4f6d; --green:#2fe59f; }
+  :root {
+    --bg:#05080f; --surface:#0c121d; --surface2:#121a28; --border:rgba(255,255,255,.09); --border2:rgba(255,255,255,.16);
+    --accent:#5ad1ff; --gold:#f0c674; --text:#eef4fb; --dim:#9aa8bb; --faint:#66758a; --up:#34d399; --down:#f87171; --amber:#fbbf24;
+    --sans: Geist, Inter, 'Segoe UI', Roboto, system-ui, sans-serif; --mono: 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+  }
   * { box-sizing: border-box; }
-  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font-family: Rajdhani, 'Roboto Condensed', Arial, sans-serif; overflow:hidden; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font-family:var(--sans); overflow:hidden; -webkit-tap-highlight-color:transparent; -webkit-font-smoothing:antialiased; }
   #scene, #scene canvas { position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; }
-  .bar { position:fixed; top:0; left:0; right:0; display:flex; align-items:center; gap:10px; padding:12px 14px; padding-top:max(12px, env(safe-area-inset-top)); background:linear-gradient(#030914ee, #03091400); z-index:5; flex-wrap:wrap; pointer-events:none; }
+  .bar { position:fixed; top:0; left:0; right:0; display:flex; align-items:center; gap:8px; padding:12px 16px; padding-top:max(12px, env(safe-area-inset-top)); background:linear-gradient(#05080fee, #05080f00); z-index:5; flex-wrap:wrap; pointer-events:none; }
   .bar > * { pointer-events:auto; }
-  .brand { font-weight:700; letter-spacing:4px; color:var(--line); font-size:20px; margin-right:auto; text-shadow:0 0 12px #35d8ff66; }
-  .brand small { color:var(--gold); letter-spacing:2px; font-size:13px; display:block; margin-top:-2px; }
-  button, .btn { font-family:inherit; font-weight:700; letter-spacing:1.5px; font-size:15px; color:var(--text); background:#35d8ff14; border:1.5px solid #35d8ff88; border-radius:10px; padding:10px 14px; cursor:pointer; text-transform:uppercase; }
-  button:hover { background:#35d8ff2a; border-color:var(--line); }
-  button.primary { background:#35d8ff2e; border-color:var(--line); box-shadow:0 0 18px #35d8ff40; }
-  button.gold { border-color:#e7b84aaa; background:#e7b84a1a; }
-  #xr-hint { position:fixed; left:50%; bottom:max(16px, env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:5; background:#07152aee; border:1px solid #35d8ff55; border-radius:12px; padding:10px 16px; font-size:15px; color:var(--dim); text-align:center; max-width:92vw; }
-  #xr-hint b { color:var(--text); }
+  .brand { display:flex; align-items:center; gap:10px; margin-right:auto; }
+  .brand .dot { width:10px; height:10px; border-radius:50%; background:var(--accent); box-shadow:0 0 14px var(--accent); }
+  .brand b { font-weight:600; font-size:19px; letter-spacing:.5px; }
+  .brand span { color:var(--dim); font-size:13px; font-weight:500; }
+  button, .btn { font-family:inherit; font-weight:500; font-size:14px; color:var(--text); background:rgba(255,255,255,.06); border:1px solid var(--border2); border-radius:999px; padding:9px 16px; cursor:pointer; transition:background .15s, border-color .15s; }
+  button:hover { background:rgba(255,255,255,.11); }
+  button.primary { background:var(--accent); color:#04121c; border-color:transparent; font-weight:600; }
+  button.primary:hover { background:#7fdcff; }
+  button.ghost { background:transparent; }
+  button.small { font-size:13px; padding:7px 12px; }
+  #xr-hint { position:fixed; left:50%; bottom:max(16px, env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:5; background:rgba(12,18,29,.92); border:1px solid var(--border); border-radius:14px; padding:10px 16px; font-size:14px; color:var(--dim); text-align:center; max-width:92vw; backdrop-filter:blur(10px); }
+  #xr-hint b { color:var(--text); font-weight:600; }
   body.in-xr .bar, body.in-xr #xr-hint { display:none; }
-  #launch { position:fixed; inset:0; z-index:15; display:flex; align-items:center; justify-content:center; background:radial-gradient(circle, #07203acc, #030914f2); }
+  #launch { position:fixed; inset:0; z-index:15; display:flex; flex-direction:column; gap:14px; align-items:center; justify-content:center; background:radial-gradient(circle at 50% 40%, #0d1a2bcc, #05080ff5); }
   #launch[hidden] { display:none; }
-  #launch-btn { font-size:34px; padding:26px 48px; letter-spacing:6px; border-radius:18px; }
-  #toast { position:fixed; left:50%; top:80px; transform:translate(-50%, -20px); opacity:0; transition:all .25s; background:#07152af2; border:1px solid var(--line); border-radius:10px; padding:10px 16px; z-index:20; font-size:16px; font-weight:600; pointer-events:none; }
+  #launch h1 { margin:0; font-weight:600; font-size:44px; letter-spacing:2px; }
+  #launch p { margin:0 0 10px; color:var(--dim); }
+  #launch-btn { font-size:22px; padding:18px 44px; }
+  #toast { position:fixed; left:50%; top:76px; transform:translate(-50%, -16px); opacity:0; transition:all .25s; background:rgba(18,26,40,.96); border:1px solid var(--border2); border-radius:12px; padding:10px 16px; z-index:30; font-size:14px; font-weight:500; pointer-events:none; }
   #toast.show { opacity:1; transform:translate(-50%, 0); }
-  #settings { position:fixed; top:0; right:0; bottom:0; width:min(460px, 100vw); background:#050f1ef7; border-left:1.5px solid #35d8ff55; z-index:10; transform:translateX(102%); transition:transform .25s ease; overflow-y:auto; padding:18px 18px 40px; padding-top:max(18px, env(safe-area-inset-top)); backdrop-filter: blur(8px); }
+  #caption { position:fixed; left:50%; bottom:max(78px, calc(env(safe-area-inset-bottom) + 70px)); transform:translate(-50%, 10px); opacity:0; pointer-events:none; transition:all .25s; z-index:6; width:min(760px, 92vw); background:rgba(12,18,29,.94); border:1px solid var(--border2); border-left:3px solid var(--accent); border-radius:14px; padding:12px 16px; font-size:15px; line-height:1.45; backdrop-filter:blur(10px); }
+  #caption.show { opacity:1; transform:translate(-50%, 0); pointer-events:auto; }
+  #caption b { color:var(--accent); font-weight:600; margin-right:6px; }
+  #caption.good { border-left-color:var(--up); } #caption.risk { border-left-color:var(--down); } #caption.alert { border-left-color:var(--amber); }
+  body.in-xr #caption { display:none; }
+
+  /* drawers / modals */
+  #settings { position:fixed; top:0; right:0; bottom:0; width:min(470px, 100vw); background:rgba(9,13,21,.97); border-left:1px solid var(--border); z-index:10; transform:translateX(102%); transition:transform .25s ease; overflow-y:auto; padding:20px 20px 40px; padding-top:max(20px, env(safe-area-inset-top)); backdrop-filter:blur(12px); }
   #settings.open { transform:none; }
-  #settings h2 { margin:0 0 4px; letter-spacing:4px; color:var(--line); font-size:22px; }
-  #settings h3 { margin:22px 0 8px; letter-spacing:3px; color:var(--gold); font-size:15px; text-transform:uppercase; }
-  #settings p.note { color:var(--dim); font-size:14px; margin:4px 0 10px; line-height:1.35; font-family: system-ui, sans-serif; }
-  #settings a { color:var(--line); }
-  label { display:block; font-size:14px; letter-spacing:1px; color:var(--dim); margin:10px 0 4px; text-transform:uppercase; font-weight:600; }
-  input[type=text], input[type=password], input[type=number], textarea { width:100%; background:#020812; border:1.5px solid #35d8ff44; color:var(--text); border-radius:8px; padding:10px 11px; font-family:'JetBrains Mono', monospace; font-size:15px; }
-  input:focus, textarea:focus { outline:none; border-color:var(--line); box-shadow:0 0 0 3px #35d8ff22; }
-  textarea { min-height:110px; resize:vertical; line-height:1.4; }
+  h2 { margin:0 0 4px; font-weight:600; font-size:22px; }
+  h3 { margin:26px 0 8px; font-weight:600; font-size:13px; color:var(--gold); letter-spacing:.8px; text-transform:uppercase; }
+  p.note { color:var(--dim); font-size:13.5px; margin:4px 0 10px; line-height:1.45; }
+  a { color:var(--accent); }
+  label { display:block; font-size:13px; color:var(--dim); margin:12px 0 5px; font-weight:500; }
+  input[type=text], input[type=password], input[type=number], textarea, select { width:100%; background:var(--surface); border:1px solid var(--border2); color:var(--text); border-radius:10px; padding:10px 12px; font-family:var(--mono); font-size:14px; }
+  select { font-family:var(--sans); }
+  input:focus, textarea:focus, select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(90,209,255,.18); }
+  textarea { min-height:96px; resize:vertical; line-height:1.4; }
+  input[type=range] { width:100%; accent-color:var(--accent); }
   .row { display:flex; gap:8px; align-items:center; }
-  .row > input { flex:1; }
+  .row > input, .row > select { flex:1; }
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
-  .check { display:flex; align-items:center; gap:10px; margin:8px 0; font-size:16px; text-transform:none; letter-spacing:0; color:var(--text); font-weight:600; }
-  .check input { width:20px; height:20px; accent-color: var(--line); }
-  .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:22px; position:sticky; bottom:-40px; padding:12px 0; background:#050f1ef7; }
-  .small { font-size:12px; padding:8px 10px; }
-  #levels-preview { color:var(--dim); font-size:13px; margin-top:6px; font-family:'JetBrains Mono', monospace; }
-  .closex { position:absolute; right:14px; top:max(14px, env(safe-area-inset-top)); }
+  .check { display:flex; align-items:center; gap:10px; margin:9px 0; font-size:15px; color:var(--text); font-weight:500; }
+  .check input { width:18px; height:18px; accent-color:var(--accent); }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:24px; position:sticky; bottom:-40px; padding:12px 0; background:rgba(9,13,21,.97); }
+  .status { font-family:var(--mono); font-size:12.5px; color:var(--dim); margin-top:6px; line-height:1.5; white-space:pre-line; }
+  .status .ok { color:var(--up); } .status .warn { color:var(--amber); } .status .bad { color:var(--down); }
+  .closex { position:absolute; right:16px; top:max(16px, env(safe-area-inset-top)); }
+
+  #calc-modal { position:fixed; inset:0; z-index:12; display:none; align-items:flex-start; justify-content:center; background:rgba(3,5,10,.72); backdrop-filter:blur(6px); overflow-y:auto; padding:max(16px, env(safe-area-inset-top)) 12px 30px; }
+  #calc-modal.open { display:flex; }
+  .card { width:min(1100px, 100%); background:rgba(11,16,26,.98); border:1px solid var(--border); border-radius:22px; padding:20px; position:relative; }
+  .calc-top { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px 14px; align-items:end; }
+  .calc-top label { margin-top:0; }
+  .spot { font-family:var(--mono); font-size:22px; font-weight:500; padding:6px 0; }
+  table { border-collapse:collapse; width:100%; }
+  .legs { margin-top:14px; overflow-x:auto; }
+  .legs th { text-align:left; font-size:12px; color:var(--faint); font-weight:500; padding:4px 6px; }
+  .legs td { padding:4px 4px; }
+  .legs input, .legs select { padding:8px 9px; font-size:14px; min-width:70px; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px; margin:16px 0; }
+  .stat { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:10px 12px; }
+  .stat small { display:block; color:var(--dim); font-size:12px; margin-bottom:3px; }
+  .stat b { font-family:var(--mono); font-weight:500; font-size:17px; }
+  #c-payoff { width:100%; height:240px; display:block; background:var(--surface); border:1px solid var(--border); border-radius:14px; }
+  .heat { margin-top:14px; overflow-x:auto; border:1px solid var(--border); border-radius:14px; }
+  .heat table { font-family:var(--mono); font-size:12.5px; }
+  .heat th { position:sticky; top:0; background:var(--surface2); color:var(--dim); font-weight:500; padding:7px 6px; }
+  .heat td { padding:5px 6px; text-align:right; white-space:nowrap; }
+  .heat td.px { color:var(--dim); text-align:left; background:var(--surface2); }
+  .heat tr.spotrow td { outline:1px solid var(--accent); outline-offset:-1px; }
+  .muted { color:var(--faint); font-size:12.5px; }
+  .seg { display:inline-flex; border:1px solid var(--border2); border-radius:999px; overflow:hidden; }
+  .seg button { border:0; border-radius:0; padding:7px 12px; background:transparent; }
+  .seg button.on { background:rgba(90,209,255,.18); color:#fff; }
 </style>
 </head>
 <body>
 <div id="scene"></div>
 
 <div class="bar">
-  <div class="brand">J.A.R.V.I.S.<small>COMMAND CENTER</small></div>
-  <button id="btn-ar" class="primary" hidden>Enter Mixed Reality</button>
+  <div class="brand"><span class="dot"></span><b>INDAI</b><span>Command Center</span></div>
+  <button id="btn-ar" class="primary" hidden>Enter mixed reality</button>
   <button id="btn-vr" hidden>Enter VR</button>
-  <button id="btn-install" class="gold" hidden>Install app</button>
-  <button id="btn-settings">Settings</button>
+  <button id="btn-calc">Calculator</button>
+  <button id="btn-tv" class="ghost">Open in TradingView</button>
+  <button id="btn-install" hidden>Install app</button>
+  <button id="btn-settings" class="ghost">Settings</button>
 </div>
-<div id="xr-hint" hidden>Preview mode. Drag to look around, tap the screens to use them. <b>Open this link in your Meta Quest browser</b> to put the command center in your room.</div>
+<div id="xr-hint" hidden>Preview mode. Drag to look around, tap the screens to use them, hold <b>Space</b> to talk. <b>Open this link in your Meta Quest browser</b> to put INDAI in your room.</div>
 <div id="toast" role="status" aria-live="polite"></div>
-<div id="launch" hidden><button id="launch-btn" class="primary">Start Jarvis</button></div>
+<div id="caption" aria-live="polite"></div>
+<div id="launch" hidden><h1>INDAI</h1><p>Your trading command center</p><button id="launch-btn" class="primary">Start</button></div>
 
 <aside id="settings" aria-hidden="true">
   <button type="button" id="s-close" class="closex small">Close</button>
-  <h2>SETTINGS</h2>
-  <p class="note">Everything here is saved on this device only. Your keys are only ever sent to the data provider they belong to.</p>
+  <h2>Settings</h2>
+  <p class="note">Saved on this device only.</p>
   <form id="s-form" autocomplete="off">
     <h3>You</h3>
-    <label for="s-name">Name Jarvis calls you</label>
+    <label for="s-name">Name INDAI calls you</label>
     <input id="s-name" type="text" maxlength="24">
     <label for="s-symbols">Watchlist (up to 12, comma separated)</label>
     <input id="s-symbols" type="text" placeholder="SPY, QQQ, IWM, TSLA, AMZN, MSFT">
 
-    <h3>Live data (free keys)</h3>
-    <p class="note">Without keys the app runs on clearly labelled <b>demo data</b>. Get a free key from <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io</a> for real-time prices, and one from <a href="https://twelvedata.com/register" target="_blank" rel="noopener">twelvedata.com</a> to load today's full candles (free plan: 8 requests/min, 800/day — the app paces itself).</p>
-    <label for="s-fh">Finnhub API key</label>
+    <h3>Market data</h3>
+    <p class="note">By default INDAI uses free CBOE data, delayed about 15 minutes: quotes, intraday candles and full option chains with Greeks. No keys needed. Add a free <a href="https://finnhub.io/register" target="_blank" rel="noopener">Finnhub</a> key for real-time stock prices on top.</p>
+    <label for="s-mode">Data</label>
+    <select id="s-mode"><option value="auto">Real market data (CBOE delayed, plus Finnhub if set)</option><option value="demo">Demo data (simulated)</option></select>
+    <label for="s-fh">Finnhub API key (optional)</label>
     <div class="row"><input id="s-fh" type="password" spellcheck="false"><button type="button" id="s-fh-show" class="small">Show</button></div>
-    <label for="s-td">Twelve Data API key</label>
-    <div class="row"><input id="s-td" type="password" spellcheck="false"><button type="button" id="s-td-show" class="small">Show</button></div>
 
     <h3>GEX levels</h3>
-    <p class="note">Paste your morning levels, one ticker per line. CW = call wall, PW = put wall, ZG = zero gamma / flip.</p>
-    <textarea id="s-levels" spellcheck="false" placeholder="IWM CW 250 PW 240 ZG 245&#10;SPY CW 690 PW 670 ZG 681&#10;QQQ CW 620 PW 600 ZG 612"></textarea>
-    <div id="levels-preview"></div>
+    <p class="note">Filled in automatically: each weekday morning from your Morning GEX refresh, and live from the options chain. Paste here only to override a ticker. CW = call wall, PW = put wall, ZG = gamma flip.</p>
+    <div id="gex-status" class="status"></div>
+    <label for="s-levels">Manual override (optional)</label>
+    <textarea id="s-levels" spellcheck="false" placeholder="IWM CW 280 PW 275 ZG 278"></textarea>
+    <div id="levels-preview" class="status"></div>
 
     <h3>Risk breaker</h3>
     <div class="grid2">
@@ -102,12 +153,38 @@
       <div><label for="s-cool">Cooldown minutes</label><input id="s-cool" type="number" min="1" max="240" step="1"></div>
     </div>
 
-    <h3>Jarvis</h3>
-    <label class="check"><input id="s-voice" type="checkbox"> Jarvis speaks out loud</label>
-    <label class="check"><input id="s-a-levels" type="checkbox"> Alert when price crosses a GEX level</label>
-    <label class="check"><input id="s-a-hod" type="checkbox"> Alert on new high / low of day</label>
+    <h3>INDAI voice</h3>
+    <label class="check"><input id="s-voice" type="checkbox"> INDAI speaks out loud</label>
+    <div class="grid2">
+      <div><label for="s-vengine">Voice engine</label><select id="s-vengine"><option value="neural">Natural voice (on-device)</option><option value="system">Browser voice (faster, robotic)</option></select></div>
+      <div><label for="s-vname">Voice</label><select id="s-vname"></select></div>
+    </div>
+    <label for="s-vspeed">Speaking speed <span id="s-vspeed-v"></span></label>
+    <input id="s-vspeed" type="range" min="0.8" max="1.2" step="0.05">
+    <label for="s-mic">Listening</label>
+    <select id="s-mic"><option value="auto">Automatic (on-device on Quest)</option><option value="whisper">Always on-device (private, works offline after download)</option><option value="browser">Browser speech recognition</option></select>
+    <div class="row" style="margin-top:12px"><button type="button" id="s-test-voice" class="small">Test voice</button><button type="button" id="s-dl-voice" class="small">Download voice &amp; listening now</button><button type="button" id="s-mic-test" class="small">Allow microphone</button></div>
+    <div id="voice-status" class="status"></div>
+
+    <h3>Research</h3>
+    <p class="note">With research on, INDAI also reads today's news, events and sentiment on the web before rating a trade. The analysis is information, not financial advice.</p>
+    <div id="research-status" class="status"></div>
+    <div class="grid2">
+      <div><label for="s-depth">Research depth</label><select id="s-depth"><option value="fast">Fast (about 20 seconds)</option><option value="deep">Deep (slower, more thorough)</option></select></div>
+      <div><label for="s-rate">Risk-free rate %</label><input id="s-rate" type="number" min="0" max="15" step="0.1"></div>
+    </div>
+    <label for="s-pass">Research passcode (only if you set one)</label>
+    <input id="s-pass" type="password" spellcheck="false">
+
+    <h3>TradingView</h3>
+    <p class="note"><b>INDAI Bridge</b> streams your TradingView candles into INDAI every minute, so charts and setup alerts run on your live TradingView data instead of 15-minute-delayed data. Add the <a href="./tradingview/indai-bridge.pine" target="_blank" rel="noopener">INDAI Bridge indicator</a> to a 1-minute chart and create one alert with your INDAI webhook link. Any other TradingView alert sent to the same link is read out loud, and alerts with levels like <code>CW 700 PW 650 ZG 676</code> update the GEX lines. Webhooks need a paid TradingView plan with two-factor authentication on.</p>
+    <div id="tv-status" class="status"></div>
+
+    <h3>Alerts</h3>
+    <label class="check"><input id="s-a-levels" type="checkbox"> Price crosses a GEX level</label>
+    <label class="check"><input id="s-a-hod" type="checkbox"> New high / low of day</label>
     <label class="check"><input id="s-a-bells" type="checkbox"> Opening / closing bell</label>
-    <button type="button" id="s-test-voice" class="small">Test voice</button>
+    <label class="check"><input id="s-a-tv" type="checkbox"> Read out my TradingView alerts</label>
 
     <div class="actions">
       <button type="submit" class="primary">Save</button>
@@ -116,6 +193,36 @@
     </div>
   </form>
 </aside>
+
+<div id="calc-modal" aria-hidden="true">
+  <div class="card">
+    <button type="button" id="c-close" class="closex small">Close</button>
+    <h2>Options profit calculator</h2>
+    <p class="note" style="margin-bottom:14px">See where the trade would likely be at each price and time. Black-Scholes pricing with the chain's implied volatility. Prices delayed about 15 minutes.</p>
+    <div class="calc-top">
+      <div><label for="c-sym">Symbol</label><div class="row"><input id="c-sym" type="text" maxlength="6" style="text-transform:uppercase"><button type="button" id="c-load" class="small">Load</button></div></div>
+      <div><label>Price</label><div class="spot" id="c-spot">—</div></div>
+      <div><label for="c-strat">Strategy</label><select id="c-strat">
+        <option value="custom">Custom</option><option value="long-call">Long call</option><option value="long-put">Long put</option>
+        <option value="bull-call">Bull call spread</option><option value="bear-put">Bear put spread</option>
+        <option value="bull-put">Bull put credit spread</option><option value="bear-call">Bear call credit spread</option>
+        <option value="straddle">Long straddle</option><option value="strangle">Long strangle</option><option value="condor">Iron condor</option>
+      </select></div>
+      <div><label for="c-exp">Expiry</label><select id="c-exp"></select></div>
+    </div>
+    <div class="legs"><table><thead><tr><th>Buy / sell</th><th>Type</th><th>Strike</th><th>Contracts</th><th>Price</th><th>IV %</th><th></th></tr></thead><tbody id="c-legs"></tbody></table></div>
+    <div class="row" style="margin-top:8px; flex-wrap:wrap">
+      <button type="button" id="c-add" class="small">Add leg</button>
+      <button type="button" id="c-fill" class="small">Use live prices &amp; IV</button>
+      <button type="button" id="c-xr" class="small">Show on the 3D screen</button>
+      <span class="muted" id="c-note"></span>
+    </div>
+    <div class="stats" id="c-stats"></div>
+    <canvas id="c-payoff" width="1060" height="240"></canvas>
+    <div class="row" style="margin-top:12px; justify-content:space-between; flex-wrap:wrap"><b style="font-weight:600">Profit / loss by price and time</b><div class="seg" id="c-unit"><button type="button" data-u="usd" class="on">$</button><button type="button" data-u="pct">% of cost</button></div></div>
+    <div class="heat" id="c-heat"></div>
+  </div>
+</div>
 
 <script type="module" src="./js/main.js"></script>
 </body>

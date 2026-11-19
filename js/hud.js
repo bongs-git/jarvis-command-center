@@ -2,16 +2,16 @@
 import * as THREE from 'three';
 
 export const C = {
-  bg: 'rgba(4,11,22,0.84)', bg2: 'rgba(10,26,44,0.92)', bg3: 'rgba(18,40,64,0.95)',
-  line: '#35d8ff', lineDim: 'rgba(53,216,255,0.32)', lineFaint: 'rgba(53,216,255,0.12)',
-  text: '#e8f7ff', dim: '#8fb0c6', faint: '#5d7b90',
-  gold: '#e7b84a', goldDim: 'rgba(231,184,74,0.35)',
-  up: '#2fe59f', down: '#ff4f6d', amber: '#ffb224', violet: '#b28cff', white: '#f4fbff',
-  grid: 'rgba(120,190,230,0.10)',
+  bg: 'rgba(9,14,24,0.80)', bg2: 'rgba(16,24,38,0.90)', bg3: 'rgba(24,34,52,0.95)',
+  line: '#5ad1ff', lineDim: 'rgba(90,209,255,0.30)', lineFaint: 'rgba(255,255,255,0.07)',
+  text: '#eef4fb', dim: '#9aa8bb', faint: '#66758a',
+  gold: '#f0c674', goldDim: 'rgba(240,198,116,0.35)',
+  up: '#34d399', down: '#f87171', amber: '#fbbf24', violet: '#a78bfa', white: '#f8fbff',
+  grid: 'rgba(255,255,255,0.06)',
 };
 export const F = {
-  hud: "'Rajdhani', 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif",
-  mono: "'JetBrains Mono', 'Roboto Mono', 'DejaVu Sans Mono', monospace",
+  hud: "'Geist', 'Inter', 'Segoe UI', Roboto, system-ui, sans-serif",
+  mono: "'Geist Mono', 'JetBrains Mono', 'Roboto Mono', monospace",
 };
 export const PPM = 1100; // canvas pixels per meter
 
@@ -29,7 +29,7 @@ export function font(size, weight = 600, fam = F.hud) { return `${weight} ${size
 export function text(ctx, str, x, y, { size = 28, weight = 600, color = C.text, align = 'left', base = 'alphabetic', fam = F.hud, max = 0, spacing = 0 } = {}) {
   ctx.font = font(size, weight, fam);
   ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = base;
-  if ('letterSpacing' in ctx) ctx.letterSpacing = spacing ? spacing + 'px' : '0px';
+  if ('letterSpacing' in ctx) ctx.letterSpacing = spacing ? (spacing * 0.35).toFixed(1) + 'px' : '0px';
   if (max > 0) {
     let s = size;
     while (s > 10 && ctx.measureText(str).width > max) { s -= 1; ctx.font = font(s, weight, fam); }
@@ -77,13 +77,13 @@ export class Panel {
     const ctx = this.ctx;
     const hov = this.hoverBtn === id && !disabled;
     const prs = this.pressed === id && !disabled;
-    rrect(ctx, x, y, w, h, 10);
-    ctx.fillStyle = fill ? fill : active ? hexA(color, 0.28) : prs ? hexA(color, 0.35) : hov ? hexA(color, 0.18) : 'rgba(255,255,255,0.04)';
+    rrect(ctx, x, y, w, h, Math.min(16, h / 2));
+    ctx.fillStyle = fill ? fill : active ? hexA(color, 0.26) : prs ? hexA(color, 0.34) : hov ? hexA(color, 0.16) : 'rgba(255,255,255,0.055)';
     ctx.fill();
-    ctx.lineWidth = active || hov ? 3 : 2;
-    ctx.strokeStyle = disabled ? 'rgba(255,255,255,0.12)' : active || hov ? color : hexA(color, 0.45);
+    ctx.lineWidth = active || hov ? 2.5 : 1.5;
+    ctx.strokeStyle = disabled ? 'rgba(255,255,255,0.06)' : active || hov ? hexA(color, 0.95) : 'rgba(255,255,255,0.10)';
     ctx.stroke();
-    text(ctx, label, x + w / 2, y + h / 2 + 1, { size, weight: 700, color: disabled ? C.faint : active ? C.white : hov ? C.white : C.text, align: 'center', base: 'middle', max: w - 14, spacing: 1 });
+    text(ctx, label, x + w / 2, y + h / 2 + 1, { size, weight: 600, color: disabled ? C.faint : active ? C.white : hov ? C.white : C.text, align: 'center', base: 'middle', max: w - 16 });
     this.buttons.push({ id, x, y, w, h, onClick, disabled });
   }
 
@@ -92,28 +92,27 @@ export class Panel {
     if (this.prepare) this.prepare();
     this.buttons = [];
     ctx.clearRect(0, 0, W, H);
-    // body
-    rrect(ctx, 3, 3, W - 6, H - 6, 22);
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, 'rgba(8,22,40,0.90)'); g.addColorStop(1, 'rgba(3,9,18,0.86)');
+    // glass body
+    rrect(ctx, 3, 3, W - 6, H - 6, 30);
+    const g = ctx.createLinearGradient(0, 0, W * 0.3, H);
+    g.addColorStop(0, this.solid ? 'rgba(20,29,46,0.97)' : 'rgba(22,32,50,0.86)'); g.addColorStop(1, this.solid ? 'rgba(8,12,22,0.97)' : 'rgba(8,12,22,0.84)');
     ctx.fillStyle = g; ctx.fill();
-    ctx.lineWidth = 2.5; ctx.strokeStyle = this.flash > 0 ? mixColor(this.accent, C.amber, this.flash) : C.lineDim; ctx.stroke();
-    // corner brackets
-    ctx.strokeStyle = this.flash > 0 ? C.amber : this.accent; ctx.lineWidth = 5;
-    const L = 34, o = 8;
-    for (const [cx, cy, sx, sy] of [[o, o, 1, 1], [W - o, o, -1, 1], [o, H - o, 1, -1], [W - o, H - o, -1, -1]]) {
-      ctx.beginPath(); ctx.moveTo(cx, cy + sy * L); ctx.lineTo(cx, cy); ctx.lineTo(cx + sx * L, cy); ctx.stroke();
-    }
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = this.flash > 0 ? mixColor('#ffffff', C.amber, this.flash) : 'rgba(255,255,255,0.12)';
+    ctx.stroke();
+    // soft top highlight
+    const hl = ctx.createLinearGradient(0, 0, 0, 90);
+    hl.addColorStop(0, 'rgba(255,255,255,0.07)'); hl.addColorStop(1, 'rgba(255,255,255,0)');
+    rrect(ctx, 4, 4, W - 8, 90, 28); ctx.fillStyle = hl; ctx.fill();
     if (this.header) {
-      ctx.fillStyle = 'rgba(53,216,255,0.07)';
-      ctx.fillRect(10, 10, W - 20, this.headerH - 10);
-      ctx.strokeStyle = C.lineFaint; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(18, this.headerH); ctx.lineTo(W - 18, this.headerH); ctx.stroke();
-      text(ctx, this.title, 30, 46, { size: 30, weight: 700, color: this.titleColor || C.line, spacing: 3 });
-      // grip dots = drag handle
-      ctx.fillStyle = this.hover && this.hover.y < this.headerH ? C.gold : C.faint;
-      const gx = W / 2 - 30;
-      for (let i = 0; i < 6; i++) for (let j = 0; j < 2; j++) { ctx.beginPath(); ctx.arc(gx + i * 12, 26 + j * 12, 3, 0, Math.PI * 2); ctx.fill(); }
+      ctx.fillStyle = this.flash > 0 ? C.amber : this.accent;
+      ctx.beginPath(); ctx.arc(36, 37, 6, 0, Math.PI * 2); ctx.fill();
+      text(ctx, this.title, 54, 47, { size: 29, weight: 600, color: this.titleColor || C.text });
+      ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(24, this.headerH); ctx.lineTo(W - 24, this.headerH); ctx.stroke();
+      // drag handle
+      ctx.fillStyle = this.hover && this.hover.y < this.headerH ? C.gold : 'rgba(255,255,255,0.18)';
+      rrect(ctx, W / 2 - 34, 14, 68, 7, 3.5); ctx.fill();
     }
     this.drawBody(ctx, { x: 24, y: this.headerH + 14, w: W - 48, h: H - this.headerH - 34 });
     this.tex.needsUpdate = true;
