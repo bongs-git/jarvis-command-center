@@ -251,7 +251,7 @@ export class Indai {
       const res = await relay.brain({ mode: 'talk', name: app.settings.name, question: cleaned, history: turns, context: this.liveContext(), speech: this.speech.habits() }, app.settings.researchPass);
       this.setThinking(null);
       const f = res.result || {};
-      if (f.heard_as && similar(f.heard_as, cleaned) < 0.97) this.speech.learn(cleaned, f.heard_as);
+      if (f.heard_as) { const sm = similar(f.heard_as, cleaned); if (sm < 0.97 && sm > 0.55) this.speech.learn(cleaned, f.heard_as); }   // a real mishear, not a paraphrase
       let ran = false;
       if (f.command) ran = (await this.route(wordsToNumbers(String(f.command)))) === 'ok';
       if (f.spoken && (!ran || !this.voice.state.speaking)) this.say(f.spoken, 'info');
