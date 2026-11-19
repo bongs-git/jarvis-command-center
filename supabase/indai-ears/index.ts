@@ -1,9 +1,10 @@
+import { serve } from "../_shared/http.ts";
 import { account, rateLimit } from "../_shared/auth.ts";
 import { db } from "../_shared/db.ts";
 import { bytes, CORS, failure, HttpError, json } from "../_shared/http.ts";
 import { wavDuration } from "./wav.ts";
 
-Deno.serve(async (req) => {
+serve("indai-ears", async (req) => {
   const start = performance.now();
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   try {

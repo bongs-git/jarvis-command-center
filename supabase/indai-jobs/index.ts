@@ -1,3 +1,4 @@
+import { markMode, serve } from "../_shared/http.ts";
 import { db, rpc, uuid } from "../_shared/db.ts";
 import { CORS, failure, HttpError, json, objectBody } from "../_shared/http.ts";
 import { scanPush } from "./push.ts";
@@ -9,7 +10,7 @@ const runners: Record<string, (args: any) => Promise<{ ok: boolean; detail: stri
   "gex-batch": refreshGex,
   push: scanPush,
 };
-Deno.serve(async (req) => {
+serve("indai-jobs", async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   try {
     if (req.method !== "POST") throw new HttpError(405, "method", "Use POST.");
@@ -18,6 +19,7 @@ Deno.serve(async (req) => {
       throw new HttpError(401, "unauthorized", "Scheduler authorization is required.");
     }
     const { id, job } = await objectBody(req, 2048);
+    markMode(req, job);
     if (!uuid.test(id) || !Object.hasOwn(runners, job)) {
       throw new HttpError(400, "bad_job", "Invalid scheduled run.");
     }

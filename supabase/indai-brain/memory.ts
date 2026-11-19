@@ -14,7 +14,14 @@ export async function memAdd(user: string, texts: unknown[], kinds: unknown[] = 
     p_user: user,
     p_items: texts.slice(0, 6).map((text, i) => ({ text: clean(text), kind: kinds[i] ?? "fact" })),
   });
-  return rows.map(({ user_id: _user, ...row }: any) => row);
+  return rows.map(({ id, kind, text, created_at, uses, last_used }: any) => ({
+    id,
+    kind,
+    text,
+    created_at,
+    uses,
+    last_used,
+  }));
 }
 export function ids(list: unknown): number[] {
   return Array.isArray(list)

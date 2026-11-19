@@ -1,3 +1,5 @@
+import { reserveTokens } from "../_shared/budget.ts";
+import { HttpError } from "../_shared/http.ts";
 import Anthropic from "npm:@anthropic-ai/sdk@0.74.0";
 
 const encoder = new TextEncoder();
@@ -36,6 +38,7 @@ export async function streamTalk(opts: TalkOptions) {
   const run = async function* () {
     let sent = "";
     for (let step = 0; step < 4; step++) {
+      const settle = await reserveTokens({ system: opts.system, messages }, 700, opts.search ? 2 : 0);
       const stream = client.messages.stream({
         model: opts.model,
         max_tokens: 700,
@@ -46,17 +49,30 @@ export async function streamTalk(opts: TalkOptions) {
           : {}),
       }, { signal });
       let raw = "";
-      for await (const event of stream) {
-        if (event.type !== "content_block_delta" || event.delta.type !== "text_delta") continue;
-        raw += event.delta.text;
-        const prefix = spokenPrefix(raw);
-        if (prefix.length > sent.length && prefix.startsWith(sent)) {
-          const delta = prefix.slice(sent.length);
-          sent = prefix;
-          yield frame({ delta });
+      let message: Anthropic.Message;
+      try {
+        for await (const event of stream) {
+          if (event.type !== "content_block_delta" || event.delta.type !== "text_delta") continue;
+          raw += event.delta.text;
+          const prefix = spokenPrefix(raw);
+          if (prefix.length > sent.length && prefix.startsWith(sent)) {
+            const delta = prefix.slice(sent.length);
+            sent = prefix;
+            yield frame({ delta });
+          }
         }
+        message = await stream.finalMessage();
+      } catch (error) {
+        // A request rejected before generation spends no tokens. Keep reservations for interrupted generation.
+        if (
+          !raw && error instanceof Anthropic.APIError &&
+          [400, 401, 402, 403, 404, 413, 422, 429].includes(error.status ?? 0)
+        ) {
+          await settle({ input_tokens: 0, output_tokens: 0 });
+        }
+        throw error;
       }
-      const message = await stream.finalMessage();
+      await settle(message.usage);
       for (const block of message.content) {
         if (block.type !== "web_search_tool_result" || !Array.isArray(block.content)) continue;
         for (const s of block.content) {
@@ -93,10 +109,14 @@ export async function streamTalk(opts: TalkOptions) {
         const next = await events.next();
         if (next.done) c.close();
         else c.enqueue(next.value);
-      } catch {
-        if (!signal.aborted || !controller.signal.aborted) {
+      } catch (e) {
+        if (!controller.signal.aborted) {
           c.enqueue(
-            frame({ error: "stream_interrupted", message: "The reply was interrupted. Please try again." }),
+            frame(
+              e instanceof HttpError
+                ? { error: e.code, message: e.message }
+                : { error: "stream_interrupted", message: "The reply was interrupted. Please try again." },
+            ),
           );
           c.close();
         }

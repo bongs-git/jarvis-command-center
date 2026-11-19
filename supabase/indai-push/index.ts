@@ -1,15 +1,17 @@
+import { markMode, serve } from "../_shared/http.ts";
 import { account, rateLimit } from "../_shared/auth.ts";
 import { db, rpc } from "../_shared/db.ts";
 import { CORS, failure, HttpError, json, objectBody } from "../_shared/http.ts";
 import { endpoint, pushConfig, sendPush, subscription } from "./webpush.ts";
 
-Deno.serve(async (req) => {
+serve("indai-push", async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   try {
     if (req.method === "GET") return json({ publicKey: pushConfig().publicKey });
     if (req.method !== "POST") throw new HttpError(405, "method", "Use GET or POST.");
     const user = await account(req);
     const body = await objectBody(req, 8192);
+    markMode(req, body.op);
     if (body.op === "subscribe") {
       pushConfig();
       const s = subscription(body.subscription ?? body);

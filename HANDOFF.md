@@ -44,6 +44,7 @@ The only client is `js/relay.js`. The function sources in `/supabase` are the so
 | `POST /auth/v1/otp {email}` then use the SDK sign-in session | email magic link | Send the public project key as `apikey` and the user access token as Bearer. The existing owner passcode permits signed-out private access. With only the public key, talk is stateless. |
 | `GET indai-market?kind=snapshot/bars/chain` | feed provenance | Same data shapes plus `source,delay` in seconds. Licensed users can receive Massive after provider activation. CBOE fallback reports 900. RSS and job health have no fixed delay. |
 | `GET indai-push`, `POST indai-push {op,subscription?,endpoint?}` | Web Push | GET returns the public VAPID key. Subscribe with `PushSubscription.toJSON()`. Unsubscribe or test by endpoint. Test returns the provider acceptance count. Sync a dated plan with aggr, capital, strategies, risk state, and watchlist. |
+| Brain, bridge and health errors | operations | `429 budget` for daily token exhaustion, `429 rate_limited` for the hourly limit, `413 too_large` for oversized webhook bodies. Configure `INDAI_DAILY_TOKEN_BUDGET` in New York calendar days. |
 
 Rules: add fields freely, never rename or remove one; errors are `{ error: code, message }` with a real HTTP status;
 every function answers `OPTIONS` with open CORS; nothing secret is ever returned to the client.

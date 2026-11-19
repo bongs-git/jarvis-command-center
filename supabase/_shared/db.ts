@@ -8,6 +8,7 @@ export async function db(path: string, query: Record<string, string> = {}, init:
   const url = new URL("/rest/v1/" + path, base);
   url.search = new URLSearchParams(query).toString();
   const response = await fetch(url, {
+    signal: AbortSignal.timeout(10_000),
     ...init,
     headers: {
       apikey: key,

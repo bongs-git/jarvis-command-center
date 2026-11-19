@@ -1,3 +1,4 @@
+import { serve, markMode } from "../_shared/http.ts";
 // INDAI market relay: public market data for the INDAI command center.
 // Reads CBOE's free delayed quotes (options chains with Greeks, OI, volume) and news RSS,
 // and returns compact summaries: put/call ratios, premium flow, unusual activity, GEX walls.
@@ -193,10 +194,12 @@ async function news(sym: string) {
   return { symbol: sym, source: null, items: [] };
 }
 
-Deno.serve(async (req) => {
+serve("indai-market",async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const url = new URL(req.url);
   const kind = url.searchParams.get("kind") ?? "chain";
+  markMode(req,kind);
+  if (req.method!=="GET") return json({error:"method",message:"Use GET."},405,0);
   const many = (url.searchParams.get("symbols") ?? "").toUpperCase().split(",").map((x) => x.trim()).filter((x) => SYM.test(x)).slice(0, 16);
   if (["quote","snapshot","bars","chain"].includes(kind)) {
     let key: string | null;
@@ -265,10 +268,10 @@ Deno.serve(async (req) => {
       return json({ daily: out }, 200, 600);
     }
   } catch (e) {
-    return json({ error: String((e as Error).message ?? e) }, 502, 0);
+    return json({ error: "upstream", message:"Market data is unavailable." }, 502, 0);
   }
   const sym = (url.searchParams.get("symbol") ?? "").toUpperCase();
-  if (!SYM.test(sym)) return json({ error: "Give a ticker, e.g. ?symbol=QQQ (or symbols=QQQ,SPY for snapshot, bars, daily)" }, 400);
+  if (!SYM.test(sym)) return json({ error: "bad_symbol", message: "Give a ticker, e.g. ?symbol=QQQ (or symbols=QQQ,SPY for snapshot, bars, daily)" }, 400);
   try {
     if (kind === "chain") {
       const exp = url.searchParams.get("expiry");
@@ -287,8 +290,8 @@ Deno.serve(async (req) => {
       const d = raw?.data ?? {};
       return json({ dataKeys: Object.keys(d), count: (d.options ?? []).length, sample: (d.options ?? [])[0] ?? null, timestamp: raw?.timestamp }, 200, 0);
     }
-    return json({ error: "Unknown kind. Use chain, quote, news, snapshot, bars or daily." }, 400);
+    return json({ error:"bad_kind", message: "Unknown kind. Use chain, quote, news, snapshot, bars or daily." }, 400);
   } catch (e) {
-    return json({ error: String((e as Error).message ?? e) }, 502, 0);
+    return json({ error: "upstream", message:"Market data is unavailable." }, 502, 0);
   }
 });

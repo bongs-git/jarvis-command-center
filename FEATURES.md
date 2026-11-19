@@ -5,6 +5,7 @@ One line per user-visible feature, newest first. The Quest app and the standalon
 
 | Date | Feature | Where | web |
 |---|---|---|---|
+| 2026-11-19 | Brain spending has a daily token guard, and TradingView webhooks enforce a 16 KiB limit and three-day retention. | Backend BE-11 (pending deployment) | todo |
 | 2026-11-19 | Subscribed devices can receive A-grade setup notifications from completed bridge candles during market hours. | Backend BE-10 (pending deployment) | todo |
 | 2026-11-19 | Market responses identify source and feed delay, with an opt-in licensed real-time adapter. | Backend BE-9 (pending deployment) | todo |
 | 2026-11-19 | Email magic-link accounts isolate saved data and cap research and talk at 60 requests per rolling hour. | Backend BE-8 (pending deployment) | todo |

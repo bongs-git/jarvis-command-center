@@ -1,9 +1,11 @@
+import { serve, markMode } from "../_shared/http.ts";
 // INDAI brain: turns a trade idea plus the command center's quantitative read into a
 // researched red/amber/green assessment, using Claude with live web search.
 // It is also her conversational mind ("talk" mode) and her long-term memory: things the trader teaches her
 // are kept in the indai_memory table and read back into every conversation, on every device.
 // Secrets (set in the Supabase dashboard): ANTHROPIC_API_KEY (required for thinking; memory works without it),
 // INDAI_PASSCODE (optional).
+import { reserveTokens } from "../_shared/budget.ts";
 import { clean, ids, memAdd, memForget, memList } from "./memory.ts";
 import { account, rateLimit } from "../_shared/auth.ts";
 import { rpc, uuid } from "../_shared/db.ts";
@@ -61,8 +63,9 @@ async function callClaude(key: string, model: string, system: string, userText: 
   const sources: { title: string; url: string }[] = [];
   let usage: any = null;
   for (let turn = 0; turn < 4; turn++) {
+    const settle = await reserveTokens({system,messages}, opts.maxTokens ?? 2500, opts.searches ?? 5);
     const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
+      method: "POST", signal:AbortSignal.timeout(90_000),
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
         model, max_tokens: opts.maxTokens ?? 2500, system, messages,
@@ -70,7 +73,8 @@ async function callClaude(key: string, model: string, system: string, userText: 
       }),
     });
     const j = await r.json();
-    if (!r.ok) throw new Error(j?.error?.message ?? `Anthropic HTTP ${r.status}`);
+    if (!r.ok) { await settle({input_tokens:0,output_tokens:0}); throw new HttpError(502,"upstream","The language provider rejected the request."); }
+    await settle(j.usage);
     usage = j.usage;
     for (const b of j.content ?? []) {
       if (b.type === "text") finalText += b.text;
@@ -90,7 +94,7 @@ function extractJson(text: string) {
   try { return JSON.parse(text.slice(a, b + 1)); } catch { return null; }
 }
 
-Deno.serve(async (req) => {
+serve("indai-brain",async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const key = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
   const pass = Deno.env.get("INDAI_PASSCODE") ?? "";
@@ -99,6 +103,7 @@ Deno.serve(async (req) => {
   let body: any, session = "default", talkUser: string | null = null;
   try {
     body = await objectBody(req);
+    markMode(req,body.mode??"trade");
     if (body.mode === "talk" || body.mode === "history") session = sessionName(body.session);
     if (body.mode === "history") {
       const user = await account(req);
@@ -126,12 +131,15 @@ Deno.serve(async (req) => {
     const name = String(body?.name ?? "there").slice(0, 30);
     const now = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" }).format(new Date());
     let memory: any[] = [];
-    try { if (talkUser) memory = await memList(talkUser,40); } catch(e) { return failure(e); }
     let prior = Array.isArray(body.history) ? body.history : [];
-    if (!prior.length && talkUser) {
-      try { prior = await recentTurns(talkUser,session); } catch (e) { return failure(e); }
-    }
+    try {
+      if (talkUser) [memory, prior] = await Promise.all([
+        memList(talkUser, 40),
+        prior.length ? Promise.resolve(prior) : recentTurns(talkUser, session),
+      ]);
+    } catch(e) { return failure(e); }
     const history = prior.slice(-16)
+      .filter((h: any) => h && typeof h === "object")
       .map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: clean(h.text) })).filter((h: any) => h.content);
     // the API wants alternating turns that start with the user
     const turns: any[] = [];
@@ -157,7 +165,7 @@ Deno.serve(async (req) => {
       const { finalText, sources, usage } = await callClaude(key, MODELS.talk, system, userText, { history: turns, maxTokens: 700, searches: body.search === false ? 0 : 2 });
       const parsed = extractJson(finalText) ?? { spoken: finalText.replace(/[{}"]/g, "").slice(0, 400) };
       return json(await finish(parsed, sources, usage));
-    } catch (e) { return json({ error: "upstream", message: String((e as Error).message ?? e) }, 502); }
+    } catch(e) { return failure(e); }
   }
   const mode = body?.mode === "chat" ? "chat" : "trade";
   const model = MODELS[body?.depth === "deep" ? "deep" : "fast"];
@@ -170,9 +178,9 @@ Deno.serve(async (req) => {
   try {
     const { finalText, sources, usage } = await callClaude(key, model, mode === "trade" ? SYSTEM : CHAT_SYSTEM, userText);
     const parsed = extractJson(finalText);
-    if (!parsed) return json({ error: "parse", raw: finalText.slice(0, 2000), sources }, 502);
+    if (!parsed) return json({ error: "parse", message:"The provider returned an incomplete assessment.", raw:"", sources }, 502);
     return json({ mode, model, result: parsed, sources, usage });
   } catch (e) {
-    return json({ error: "upstream", message: String((e as Error).message ?? e) }, 502);
+    return failure(e);
   }
 });

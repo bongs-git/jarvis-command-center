@@ -58,3 +58,50 @@ export async function objectBody(req: Request, max = 100_000) {
   } catch { /* invalid JSON */ }
   throw new HttpError(400, "bad_request", "Expected a JSON object.");
 }
+
+const modes = new WeakMap<Request, string>();
+const known = new Set([
+  "talk",
+  "trade",
+  "chat",
+  "history",
+  "memory",
+  "profile",
+  "bars",
+  "alerts",
+  "snapshot",
+  "daily",
+  "quote",
+  "chain",
+  "news",
+  "debug",
+  "health",
+  "gex-batch",
+  "push",
+  "test",
+  "subscribe",
+  "unsubscribe",
+]);
+export function markMode(req: Request, value: unknown) {
+  modes.set(req, typeof value === "string" && known.has(value) ? value : "unknown");
+}
+export function serve(name: string, handle: (req: Request) => Response | Promise<Response>) {
+  return Deno.serve(async (req) => {
+    const start = performance.now();
+    let response: Response;
+    try {
+      response = await handle(req);
+    } catch (e) {
+      response = failure(e);
+    }
+    console.info(
+      JSON.stringify({
+        fn: name,
+        mode: modes.get(req) ?? req.method,
+        ms: Math.round(performance.now() - start),
+        status: response.status,
+      }),
+    );
+    return response;
+  });
+}
