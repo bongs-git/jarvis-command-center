@@ -14,6 +14,10 @@ export function gexRows(
   session: { day: string; previous: string; minute: number; previous_close_min?: number },
 ) {
   let stamp = String(chain.timestamp ?? "");
+  // The CBOE feed envelope publishes a zone-less UTC timestamp. Trade times in the payload use exchange time.
+  if (String(chain.source ?? "").startsWith("CBOE") && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(stamp)) {
+    stamp = stamp.replace(" ", "T") + "Z";
+  }
   if (/Z$|[+-]\d{2}:?\d{2}$/.test(stamp)) {
     const ms = Date.parse(stamp);
     if (!Number.isFinite(ms)) throw new Error("Invalid chain time");
@@ -79,23 +83,28 @@ export async function refreshGex(args: any) {
   for (let i = 0; i < symbols.length; i += 3) {
     await Promise.all(
       symbols.slice(i, i + 3).map(async (symbol) => {
+        let phase = "ticker";
         try {
           if (!/^[A-Z][A-Z.]{0,7}$/.test(symbol)) throw new Error("Invalid ticker");
           const url = new URL("/functions/v1/indai-market", base);
           url.search = new URLSearchParams({ kind: "chain", symbol, range: "0.01" }).toString();
+          phase = "market relay";
           const r = await fetch(url, {
             headers: { apikey: key, Authorization: "Bearer " + key },
             signal: AbortSignal.timeout(28_000),
           });
-          if (!r.ok) throw new Error("Market relay unavailable");
+          if (!r.ok) { failed.push(symbol + " (market " + r.status + ")"); return; }
+          phase = "chain validation";
           const rows = gexRows(symbol, await r.json(), session);
+          if (args.verify_only === true) return;
+          phase = "database write";
           await db("indai_gex_levels", { on_conflict: "ticker,scope" }, {
             method: "POST",
             headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
             body: JSON.stringify(rows),
           });
         } catch {
-          failed.push(symbol);
+          failed.push(symbol + " (" + phase + ")");
         }
       }),
     );

@@ -34,3 +34,10 @@ Deno.test("Failed, stale and future chain snapshots cannot be stamped as a morni
   }
   assert.throws(() => gexRows("SPY", chain("2026-11-30 09:12"), session));
 });
+
+Deno.test("CBOE envelope times are UTC while unqualified exchange inputs retain their original meaning", () => {
+  const cboe = (stamp: string) => ({...chain(stamp), source: "CBOE delayed quotes (about 15 minutes)"});
+  assert.equal(gexRows("QQQ", cboe("2026-11-30 14:02:00"), session).length, 2);
+  assert.equal(gexRows("QQQ", cboe("2026-11-27 17:59:00"), session).length, 2);
+  assert.throws(() => gexRows("QQQ", cboe("2026-11-30 16:10:00"), session));
+});
