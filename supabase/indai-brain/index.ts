@@ -4,6 +4,8 @@
 // are kept in the indai_memory table and read back into every conversation, on every device.
 // Secrets (set in the Supabase dashboard): ANTHROPIC_API_KEY (required for thinking; memory works without it),
 // INDAI_PASSCODE (optional).
+import { failure, objectBody } from "../_shared/http.ts";
+import { profile } from "./profile.ts";
 import { streamTalk } from "./stream.ts";
 
 const CORS = {
@@ -109,8 +111,12 @@ Deno.serve(async (req) => {
   const pass = Deno.env.get("INDAI_PASSCODE") ?? "";
   if (req.method === "GET") return json({ configured: !!key, passcode: !!pass, memory: !!SB_KEY });
   if (pass && req.headers.get("x-indai-pass") !== pass) return json({ error: "passcode", message: "Wrong or missing INDAI passcode." }, 401);
+  if (req.method !== "POST") return json({error:"method",message:"Use GET or POST."},405);
   let body: any;
-  try { body = await req.json(); } catch { return json({ error: "bad_request" }, 400); }
+  try {
+    body = await objectBody(req);
+    if (body.mode === "profile") return await profile(req, body);
+  } catch (e) { return failure(e); }
   // Memory works whether or not the thinking key is set, so teaching INDAI never fails.
   if (body?.mode === "memory") {
     try {
