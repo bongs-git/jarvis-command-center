@@ -1,11 +1,13 @@
 import { db, rpc, uuid } from "../_shared/db.ts";
 import { CORS, failure, HttpError, json, objectBody } from "../_shared/http.ts";
+import { scanPush } from "./push.ts";
 import { refreshGex } from "./gex.ts";
 import { compactMemory } from "./memory.ts";
 
 const runners: Record<string, (args: any) => Promise<{ ok: boolean; detail: string }>> = {
   memory: compactMemory,
   "gex-batch": refreshGex,
+  push: scanPush,
 };
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });

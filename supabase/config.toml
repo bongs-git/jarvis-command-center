@@ -23,3 +23,7 @@ entrypoint = "./indai-ears/index.ts"
 [auth.email]
 enable_signup = true
 enable_confirmations = true
+
+[functions.indai-push]
+verify_jwt = false
+entrypoint = "./indai-push/index.ts"
