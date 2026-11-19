@@ -5,7 +5,7 @@
 //   - deep dives a ticker, answers open questions with web research when the research key is set
 import { VoiceIO } from './voice.js';
 import { relay } from './relay.js';
-import { etToMs, aggregate, INTERVAL_MS } from './market.js';
+import { etToMs, aggregate, INTERVAL_MS, marketStatus } from './market.js';
 import { technicals, realizedVol, stripWake, parseIdea, looksLikeTradeIdea, scoreTrade, headlineSentiment, quantRead } from './analysis.js';
 import { fmtPrice, fmtMoney } from './hud.js';
 import { LEADLAG } from './feeds.js';
@@ -348,10 +348,14 @@ export class Indai {
     if (runId !== this.runId) return;
     const q = app.feed.quote(sym);
     const fresh = q && Date.now() - (q.lastTradeAt || 0) < 120e3 && app.feed.status.mode !== 'demo';
-    const spot = fresh ? q.last : chain.spot;
+    let spot = fresh ? q.last : chain.spot;
+    // Outside market hours, a big after-hours move makes closing option quotes stale: use the after-hours price
+    // and price the option with the model at the chain's implied volatility.
+    const offHours = marketStatus().state !== 'open' && q?.ext && Math.abs(q.ext / q.last - 1) > 0.003;
+    if (offHours) { spot = q.ext; this.say(`Market's closed and ${sym} has moved to ${fmtPrice(q.ext)} after hours, so I priced the option with the model instead of the closing quote.`, 'info', { speak: false }); }
     const daily = dailyRes?.daily?.[sym] || null;
     const rv = realizedVol(daily);
-    const contract = row ? { ...row, mid: idea.premium ?? row.mid } : (idea.premium ? { mid: idea.premium, bid: 0, ask: 0, iv: 0, vol: 0, oi: 0 } : null);
+    const contract = row ? { ...row, mid: idea.premium ?? (offHours ? 0 : row.mid) } : (idea.premium ? { mid: idea.premium, bid: 0, ask: 0, iv: 0, vol: 0, oi: 0 } : null);
     const quant = quantRead({ spot, strike: idea.strike, type: idea.type, side: idea.side, expiry: idea.expiry, contract, ivFallback: rv || (chain.meta?.iv30 ? chain.meta.iv30 / 100 : 0.25), r });
     const tech = technicals(barsRes);
     app.noteChainGex(sym, chain);
@@ -379,7 +383,7 @@ export class Indai {
       : `Chance it expires worthless for you about ${pct(quant.popExpiry)}.`;
     const pro = score.pros[0] ? ` Working for it: ${score.pros.slice(0, 2).map(f => f.name.toLowerCase()).join(' and ')}.` : '';
     const con = score.cons[0] ? ` Against it: ${score.cons.slice(0, 2).map(f => f.name.toLowerCase()).join(' and ')}.` : '';
-    const priceLine = row ? ` Option is about ${row.mid.toFixed(2)}.` : '';
+    const priceLine = row ? ` Option is about ${quant.entry.toFixed(2)}${offHours ? ' by the model' : ''}.` : '';
     const willResearch = this.brain.configured;
     this.say(`${sym} ${idea.strike} ${idea.type === 'P' ? 'puts' : 'calls'}, ${expWords(idea.expiry)}. ${lead}${priceLine} ${odds}${pro}${con}${willResearch ? ' Checking the news and today\'s events now.' : ''}`, score.rag === 'GREEN' ? 'good' : score.rag === 'RED' ? 'risk' : 'alert');
     this.setThinking(willResearch ? 'Researching news…' : null);
