@@ -1,7 +1,7 @@
 // INDAI market relay: public market data for the INDAI command center.
 // Reads CBOE's free delayed quotes (options chains with Greeks, OI, volume) and news RSS,
 // and returns compact summaries: put/call ratios, premium flow, unusual activity, GEX walls.
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { rpc } from "../_shared/db.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -195,6 +195,7 @@ Deno.serve(async (req) => {
   const kind = url.searchParams.get("kind") ?? "chain";
   const many = (url.searchParams.get("symbols") ?? "").toUpperCase().split(",").map((x) => x.trim()).filter((x) => SYM.test(x)).slice(0, 16);
   try {
+    if (kind === "health") return json({jobs:await rpc("indai_job_health")},200,0);
     if (kind === "snapshot") {
       const out = await Promise.all(many.map(async (t) => {
         try {

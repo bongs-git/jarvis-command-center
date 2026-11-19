@@ -1,8 +1,12 @@
 import { db, rpc, uuid } from "../_shared/db.ts";
 import { CORS, failure, HttpError, json, objectBody } from "../_shared/http.ts";
+import { refreshGex } from "./gex.ts";
 import { compactMemory } from "./memory.ts";
 
-const runners: Record<string, () => Promise<{ ok: boolean; detail: string }>> = { memory: compactMemory };
+const runners: Record<string, (args: any) => Promise<{ ok: boolean; detail: string }>> = {
+  memory: compactMemory,
+  "gex-batch": refreshGex,
+};
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   try {
@@ -25,7 +29,7 @@ Deno.serve(async (req) => {
     if (!claim.length) return json({ accepted: false });
     let result;
     try {
-      result = await runners[job]();
+      result = await runners[job](claim[0].args);
     } catch {
       result = { ok: false, detail: "Job failed. Check Edge Function logs and provider connectivity." };
     }
