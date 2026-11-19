@@ -17,8 +17,8 @@ written contract, so it can be built and tested from anywhere.
 
 ## The contract (do not break without agreeing a version bump)
 
-Base URL `https://zptjziewsfuvfcogrikz.supabase.co`. Every call sends the public anon key as `apikey` and `Authorization: Bearer`.
-The only client is `js/relay.js`. The function sources in `/supabase` are the source of truth for response shapes; the shapes written out below were checked against the deployed brain function.
+Base URL `https://zptjziewsfuvfcogrikz.supabase.co`. Clients send the public project key as `apikey`. Send the signed-in user’s access token as `Authorization: Bearer`, or the public key for a signed-out request.
+The only client is `js/relay.js`. The function sources in `/supabase` are the source of truth for response shapes; the original shapes were checked against the deployed brain function. `FEATURES.md` records which hosted features are active and which still need configuration.
 
 | Endpoint | Purpose | Shape |
 |---|---|---|
@@ -32,22 +32,33 @@ The only client is `js/relay.js`. The function sources in `/supabase` are the so
 | `GET /functions/v1/indai-brain` | status | `{ configured, passcode, memory }` |
 | `POST /functions/v1/indai-brain` `{mode:"trade"}` | researched RAG verdict | `{ result: { rag, confidence, headline, spoken, summary[], bullish[], bearish[], news[], events[], watch[], plan_notes } }` |
 | `POST … {mode:"talk", question, history[], context, speech}` | conversation | `{ result: { spoken, summary?, command?, heard_as?, remember?, forget? }, remembered[] }` |
-| `POST … {mode:"memory", op:"list"|"add"|"forget", text?, ids?}` | long-term memory | `{ memory: [{ id, kind, text, created_at }] }` |
+| `POST … {mode:"memory", op:"list"/"add"/"forget", text?, ids?}` | long-term memory | `{ memory: [{ id, kind, text, created_at }] }` |
 | `GET /rest/v1/indai_gex_levels` | morning GEX levels | rows per ticker and scope |
+| `POST indai-brain {mode:"talk",search:false,…}` | answer from supplied context | same talk envelope, empty sources |
+| `POST indai-brain {mode:"talk",stream:true,…}` | SSE | `data: {"delta":"…"}`, one final talk envelope, then `data: [DONE]`. Once the upstream accepts the request, an SSE comment opens the connection. Later failures send an error event and close. |
+| `POST indai-brain {mode:"profile",op:"get"/"put",key,value?,mutation_id?}` | shared profile | `{key,value,updated_at}`. Use the localStorage keys, `plan` or `watchlist`. Send speech counter increments and a stable mutation UUID on retry. Missing values return null. |
+| `POST indai-brain {mode:"history",op:"list"/"clear",session?}` | saved conversation | `{turns:[]}`. Talk defaults to the same session on each device. Empty history resumes it. A stable talk `request_id` prevents duplicated stored turns on retry. |
+| `POST indai-brain {mode:"memory",op:"add",text,kind?}` | learned memory | Rows add `uses,last_used`. Kinds are fact, preference, rule or vocabulary. Talk can return `used_ids`. |
+| `POST indai-ears?symbols=QQQ,SPY` with `Content-Type: audio/wav` | server transcription | `{text,alternatives:string[],ms}`. 16 kHz mono 16-bit PCM, up to 30 s / 1 MB. Activate with `INDAI_STT_PROVIDER=deepgram` and the provider secret. |
+| `GET indai-market?kind=health` | scheduled job health | `{jobs:[{job,ok,detail,at,state}]}`. The 09:20 ET `gex` check covers the entire universe. Database failure notifications and an optional HTTPS operations webhook report failures. |
+| `POST /auth/v1/otp {email}` then use the SDK sign-in session | email magic link | Send the public project key as `apikey` and the user access token as Bearer. The existing owner passcode permits signed-out private access. With only the public key, talk is stateless. |
+| `GET indai-market?kind=snapshot/bars/chain` | feed provenance | Same data shapes plus `source,delay` in seconds. Licensed users can receive Massive after provider activation. CBOE fallback reports 900. RSS and job health have no fixed delay. |
+| `GET indai-push`, `POST indai-push {op,subscription?,endpoint?}` | Web Push | GET returns the public VAPID key. Subscribe with `PushSubscription.toJSON()`. Unsubscribe or test by endpoint. Test returns the provider acceptance count. Sync a dated plan with aggr, capital, strategies, risk state, and watchlist. |
+| Brain, bridge and health errors | operations | `429 budget` for daily token exhaustion, `429 rate_limited` for the hourly limit, `413 too_large` for oversized webhook bodies. Configure `INDAI_DAILY_TOKEN_BUDGET` in New York calendar days. |
 
 Rules: add fields freely, never rename or remove one; errors are `{ error: code, message }` with a real HTTP status;
 every function answers `OPTIONS` with open CORS; nothing secret is ever returned to the client.
 
 ## Back-end backlog (ChatGPT), in priority order
 
-1. **Thinking key.** `ANTHROPIC_API_KEY` secret is not set, so `talk` and researched `trade` return 503 `not_configured`. Owner action: add it in Supabase → Edge Functions → Secrets. (Or swap the brain to another LLM behind the same response shape.)
-2. **Streaming talk.** Add `mode:"talk", stream:true` returning server-sent events (`{delta}` chunks of `spoken`, then one final `{result}`), so INDAI starts speaking on the first sentence.
-3. **Server speech-to-text (optional accuracy upgrade).** `POST /functions/v1/indai-ears` taking 16 kHz mono WAV, returning `{ text, alternatives[] }`. The client already has a single `transcribe()` seam in `js/voice.js` to plug it into.
-4. **Sync what she learns.** Table + endpoints for the speech profile (`indai.speech.v1` and `indai.ears.v1` in localStorage today) so the headset, phone and laptop share one learned profile: `mode:"profile", op:"get"|"put"`.
-5. **Accounts.** Today it is single-user with a public key and an optional passcode. Add Supabase Auth and row-level security before anyone else uses it.
-6. **Morning GEX job.** `indai_gex_levels` last refreshed 11-16; make the 9:14 ET job reliable and alert on failure.
-7. **Real-time data.** Replace the 15-minute delayed CBOE relay with a licensed real-time source when the owner picks one; keep the response shapes.
-8. **Push alerts.** Web Push for signals when the app is closed (the website will need this on phones).
+1. **Thinking key.** Hosted status reported `configured:true` on November 19, 2026. A no-search talk probe returned spoken text in 1.47 seconds after rollout. The target is under three seconds. Run `supabase/checks/brain-live.sh` after deployment.
+2. **Streaming talk.** Live. Send `mode:"talk", stream:true` for `{delta}` chunks of `spoken`, then one final result envelope. Three hosted probes received the first spoken text in 868–911 ms. The clients can start playback once they have a sentence.
+3. **Server speech-to-text (optional accuracy upgrade).** `indai-ears` is deployed. Selection and credentials for the optional Deepgram adapter are pending. The endpoint accepts a 16 kHz mono WAV and returns `{ text, alternatives[], ms }`. The client integration point is `transcribe()` in `js/voice.js`.
+4. **Sync what she learns.** `mode:"profile"` with `op:"get"` or `op:"put"` is live for protected profiles, including `indai.speech.v1` and `indai.ears.v1`.
+5. **Accounts.** Email accounts and scoped database access are live. Configure an owner passcode for the signed-out headset. Legacy-owner transfer is staged.
+6. **Morning GEX job.** The scheduler starts at 09:14 ET, retries at 09:17 and audits coverage at 09:20. The November 19 deadline was missed. All 112 tickers had both scopes at 09:20:45 ET. The weekday failure monitor checks at 09:22 ET.
+7. **Real-time data.** The live CBOE relay reports its 900-second delay. A Massive adapter is available once the owner selects the provider and obtains the required entitlements.
+8. **Push alerts.** Subscription and alert delivery endpoints are deployed. End-to-end browser delivery awaits owner-managed VAPID credentials, client registration and a closed-app test.
 
 ## Front-end backlog (Claude)
 

@@ -5,6 +5,17 @@ One line per user-visible feature, newest first. The Quest app and the standalon
 
 | Date | Feature | Where | web |
 |---|---|---|---|
+| 2026-11-19 | Brain spending has a daily token budget, and TradingView webhooks enforce a 16 KiB payload limit. | Backend BE-11 (budget and bridge limits live, retention staged) | todo |
+| 2026-11-19 | Web Push endpoints support A-grade setup notifications from completed bridge candles during market hours. | Backend BE-10 (deployed, VAPID and browser acceptance pending) | todo |
+| 2026-11-19 | Market responses identify source and feed delay, with an opt-in licensed real-time adapter. | Backend BE-9 (delayed feed live, licensing pending) | todo |
+| 2026-11-19 | Email magic-link accounts isolate saved data and cap research and talk at 60 requests per rolling hour. | Backend BE-8 (account isolation live, owner transfer staged) | todo |
+| 2026-11-19 | Morning GEX refresh covers both scopes for the saved universe, retries missing tickers, and reports failures. | Backend BE-7 (live, first deadline missed and coverage recovered) | todo |
+| 2026-11-19 | Optional server transcription uses watchlist tickers and learned pronunciations. | Backend BE-6 (deployed, provider activation pending) | todo |
+| 2026-11-19 | INDAI prioritizes frequently used memories. Nightly duplicate cleanup is staged for approval. | Backend BE-5 (learning live, nightly cleanup staged) | todo |
+| 2026-11-19 | The last 16 turns follow a conversation between devices for six hours. | Backend BE-4 (live, authenticated) | todo |
+| 2026-11-19 | Speech fixes, listening settings, watchlists and day plans sync across devices. | Backend BE-3 (live, authenticated) | todo |
+| 2026-11-19 | Talk can stream the spoken reply as it is generated. | Backend BE-2 (live, first spoken text in 868–911 ms in three hosted checks) | todo |
+| 2026-11-19 | Talk can explicitly skip web search for a latency-sensitive reply. | Backend BE-1 (live) | todo |
 | 2026-11-19 | Standalone website for phone, tablet and laptop: https://bongs-git.github.io/indai/ | bongs-git.github.io `/indai/` (see its SYNC.md) | done |
 | 2026-11-19 | Brand logo on the launch screen and app icons | index.html, icons/, brand/ | done |
 | 2026-11-19 | Thinking brain "talk" mode: free conversation, runs commands from loose wording, fixes mishears | supabase/indai-brain, js/indai.js `converse` | done |

@@ -1,0 +1,29 @@
+project_id = "zptjziewsfuvfcogrikz"
+
+[functions.indai-brain]
+verify_jwt = false
+entrypoint = "./indai-brain/index.ts"
+
+[functions.indai-market]
+verify_jwt = true
+entrypoint = "./indai-market/index.ts"
+
+[functions.indai-tv]
+verify_jwt = false
+entrypoint = "./indai-tv/index.ts"
+
+[functions.indai-jobs]
+verify_jwt = false
+entrypoint = "./indai-jobs/index.ts"
+
+[functions.indai-ears]
+verify_jwt = false
+entrypoint = "./indai-ears/index.ts"
+
+[auth.email]
+enable_signup = true
+enable_confirmations = true
+
+[functions.indai-push]
+verify_jwt = false
+entrypoint = "./indai-push/index.ts"

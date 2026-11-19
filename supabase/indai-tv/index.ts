@@ -1,3 +1,4 @@
+import { serve, markMode } from "../_shared/http.ts";
 // INDAI <- TradingView: receives TradingView alert webhooks and stores them for the command center.
 //   POST /functions/v1/indai-tv?key=<webhook key>   body: any alert text, or JSON like
 //        {"ticker":"{{ticker}}","price":{{close}},"text":"QQQ crossed VWAP","cw":700,"pw":650,"zg":676}
@@ -6,7 +7,8 @@
 //   GET  /functions/v1/indai-tv?since=<ISO time>    recent alerts (last 2 days) for the app
 //   GET  /functions/v1/indai-tv?bars=1&since=<ms>   bridge candles newer than <ms> (bar open time)
 // The webhook key lives in public.indai_private_config (readable only by the service role).
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { bytes, HttpError } from "../_shared/http.ts";
+import { sameSecret } from "../_shared/auth.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -23,6 +25,7 @@ let cachedKey: { v: string; t: number } | null = null;
 async function webhookKey() {
   if (cachedKey && Date.now() - cachedKey.t < 300_000) return cachedKey.v;
   const r = await fetch(`${URL_}/rest/v1/indai_private_config?name=eq.tv_webhook_key&select=value`, { headers: H });
+  if (!r.ok) throw new HttpError(502,"database","Webhook configuration is unavailable.");
   const j = await r.json();
   const v = Array.isArray(j) && j[0]?.value ? String(j[0].value) : "";
   cachedKey = { v, t: Date.now() };
@@ -56,12 +59,14 @@ function grabLevels(text: string, obj: Record<string, unknown> | null) {
   return Object.keys(out).length ? out : null;
 }
 
-Deno.serve(async (req) => {
+serve("indai-tv",async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const url = new URL(req.url);
+  markMode(req,url.searchParams.has("bars")?"bars":"alerts");
   if (req.method === "GET" && url.searchParams.get("bars")) {
     const since = Math.max(Number(url.searchParams.get("since")) || 0, Date.now() - 3 * 3600e3);
     const r = await fetch(`${URL_}/rest/v1/indai_tv_bars?select=ticker,t,o,h,l,c,v,tf,received_at&t=gt.${since}&order=t.asc&limit=1500`, { headers: H });
+    if (!r.ok) throw new HttpError(502,"database","The bridge feed is unavailable.");
     const rows = await r.json();
     return new Response(JSON.stringify({ bars: Array.isArray(rows) ? rows : [], now: Date.now() }), { headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
   }
@@ -69,23 +74,23 @@ Deno.serve(async (req) => {
     const since = url.searchParams.get("since");
     const sinceQ = since && !isNaN(Date.parse(since)) ? `&received_at=gt.${encodeURIComponent(new Date(since).toISOString())}` : "";
     const r = await fetch(`${URL_}/rest/v1/indai_tv_alerts?select=id,received_at,ticker,kind,text,price,levels&received_at=gt.${encodeURIComponent(new Date(Date.now() - 2 * 864e5).toISOString())}${sinceQ}&order=received_at.desc&limit=50`, { headers: H });
+    if (!r.ok) throw new HttpError(502,"database","The bridge feed is unavailable.");
     const rows = await r.json();
     return new Response(JSON.stringify({ alerts: Array.isArray(rows) ? rows : [] }), { headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "public, max-age=5" } });
   }
-  if (req.method !== "POST") return json({ error: "method" }, 405);
+  if (req.method !== "POST") return json({ error: "method", message:"Use GET or POST." }, 405);
   const key = await webhookKey();
-  if (!key || url.searchParams.get("key") !== key) return json({ error: "unauthorized" }, 401);
-  const raw = (await req.text()).slice(0, 4000);
+  if (!sameSecret(key,url.searchParams.get("key")??"")) return json({error:"unauthorized",message:"Invalid webhook key."},401);
+  const raw = new TextDecoder().decode(await bytes(req,16*1024));
   let obj: Record<string, unknown> | null = null;
   try { const p = JSON.parse(raw); if (p && typeof p === "object" && !Array.isArray(p)) obj = p; } catch { /* plain text alert */ }
   if (obj && (obj.kind === "bars" || obj.kind === "bar")) {
     const list = Array.isArray(obj.bars) ? obj.bars : [obj];
-    const rows = list.map((b: any) => ({ ticker: cleanTicker(b.s ?? b.ticker ?? b.symbol), t: Math.round(Number(b.t)), o: num(b.o), h: num(b.h), l: num(b.l), c: num(b.c), v: num(b.v), tf: String(obj.tf ?? b.tf ?? "1").slice(0, 6), received_at: new Date().toISOString() }))
+    const rows = list.filter((v:any)=>v && typeof v==="object").map((b: any) => ({ ticker: cleanTicker(b.s ?? b.ticker ?? b.symbol), t: Math.round(Number(b.t)), o: num(b.o), h: num(b.h), l: num(b.l), c: num(b.c), v: num(b.v), tf: String(obj.tf ?? b.tf ?? "1").slice(0, 6), received_at: new Date().toISOString() }))
       .filter((b: any) => b.ticker && isFinite(b.t) && b.t > 1.5e12 && b.c != null && b.c > 0);
-    if (!rows.length) return json({ ok: false, error: "no valid bars" }, 400);
+    if (!rows.length) return json({ok:false,error:"no_valid_bars",message:"No valid bridge candles were supplied."},400);
     const r = await fetch(`${URL_}/rest/v1/indai_tv_bars?on_conflict=ticker,t`, { method: "POST", headers: { ...H, Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) });
-    if (!r.ok) return json({ error: "store", detail: (await r.text()).slice(0, 300) }, 500);
-    if (Math.random() < 0.02) fetch(`${URL_}/rest/v1/indai_tv_bars?received_at=lt.${encodeURIComponent(new Date(Date.now() - 3 * 864e5).toISOString())}`, { method: "DELETE", headers: H }).catch(() => {});
+    if (!r.ok) return json({ error:"store",message:"The bridge write failed.",detail:"" }, 500);
     return json({ ok: true, bars: rows.length });
   }
   const text = String(obj?.text ?? obj?.message ?? obj?.msg ?? obj?.alert ?? raw).trim().slice(0, 600) || "TradingView alert";
@@ -102,6 +107,6 @@ Deno.serve(async (req) => {
     levels, payload: obj ?? { raw },
   };
   const r = await fetch(`${URL_}/rest/v1/indai_tv_alerts`, { method: "POST", headers: { ...H, Prefer: "return=minimal" }, body: JSON.stringify(row) });
-  if (!r.ok) return json({ error: "store", detail: (await r.text()).slice(0, 300) }, 500);
+  if (!r.ok) return json({ error:"store",message:"The bridge write failed.",detail:"" }, 500);
   return json({ ok: true, ticker, kind: row.kind });
 });

@@ -1,10 +1,18 @@
+import { serve, markMode } from "../_shared/http.ts";
 // INDAI brain: turns a trade idea plus the command center's quantitative read into a
 // researched red/amber/green assessment, using Claude with live web search.
 // It is also her conversational mind ("talk" mode) and her long-term memory: things the trader teaches her
 // are kept in the indai_memory table and read back into every conversation, on every device.
 // Secrets (set in the Supabase dashboard): ANTHROPIC_API_KEY (required for thinking; memory works without it),
 // INDAI_PASSCODE (optional).
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { reserveTokens } from "../_shared/budget.ts";
+import { clean, ids, memAdd, memForget, memList } from "./memory.ts";
+import { account, rateLimit } from "../_shared/auth.ts";
+import { rpc, uuid } from "../_shared/db.ts";
+import { clearHistory, recentTurns, saveTurns, sessionName } from "./history.ts";
+import { failure, HttpError, objectBody } from "../_shared/http.ts";
+import { profile } from "./profile.ts";
+import { streamTalk } from "./stream.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -45,28 +53,9 @@ How you work:
 - You are not a financial adviser. You give your honest read and the reasons; the trader decides. If the risk breaker is tripped, be kind and firm about it.
 - Use web search only when the question needs something current that the context does not have (news, events, facts). Otherwise answer straight away.
 
+Include used_ids for supplied memories that actually informed this reply, and remember_kinds (fact, preference, rule, vocabulary) aligned with remember.
 Reply with ONLY one JSON object, no markdown:
 {"spoken":"what you say out loud: 1-3 natural sentences, no lists or symbols","summary":["optional: up to 4 short lines of detail for the screen"],"command":"optional: one command to run, in plain words","heard_as":"optional: if the speech recognizer clearly garbled their words, what they actually said","remember":["optional: new things to keep in long-term memory"],"forget":["optional: memory ids to delete, only when the trader asks you to forget something"]}`;
-
-// ---- long-term memory (service role; the table is not readable with the public key)
-const SB_URL = Deno.env.get("SUPABASE_URL") ?? "", SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-async function mem(path: string, init: RequestInit = {}) {
-  const r = await fetch(`${SB_URL}/rest/v1/indai_memory${path}`, { ...init, headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers ?? {}) } });
-  if (!r.ok) throw new Error(`memory ${r.status}`);
-  return r.status === 204 ? [] : await r.json();
-}
-const clean = (t: unknown) => String(t ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
-async function memList() { try { return await mem("?select=id,kind,text,created_at&order=created_at.asc&limit=200"); } catch { return []; } }
-async function memAdd(texts: unknown[], kind = "note") {
-  const have = (await memList()).map((m: any) => m.text.toLowerCase());
-  const rows = texts.map(clean).filter((t) => t.length > 3 && !have.includes(t.toLowerCase())).slice(0, 6).map((text) => ({ text, kind }));
-  return rows.length ? await mem("", { method: "POST", body: JSON.stringify(rows) }) : [];
-}
-async function memForget(ids: unknown[]) {
-  const ok = ids.map((x) => parseInt(String(x), 10)).filter((n) => Number.isFinite(n)).slice(0, 20);
-  if (ok.length) await mem(`?id=in.(${ok.join(",")})`, { method: "DELETE" });
-  return ok;
-}
 
 async function callClaude(key: string, model: string, system: string, userText: string, opts: { history?: any[]; maxTokens?: number; searches?: number } = {}) {
   const messages: any[] = [...(opts.history ?? []), { role: "user", content: userText }];
@@ -74,16 +63,18 @@ async function callClaude(key: string, model: string, system: string, userText: 
   const sources: { title: string; url: string }[] = [];
   let usage: any = null;
   for (let turn = 0; turn < 4; turn++) {
+    const settle = await reserveTokens({system,messages}, opts.maxTokens ?? 2500, opts.searches ?? 5);
     const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
+      method: "POST", signal:AbortSignal.timeout(90_000),
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
         model, max_tokens: opts.maxTokens ?? 2500, system, messages,
-        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: opts.searches ?? 5 }],
+        ...(opts.searches === 0 ? {} : { tools: [{ type: "web_search_20250305", name: "web_search", max_uses: opts.searches ?? 5 }] }),
       }),
     });
     const j = await r.json();
-    if (!r.ok) throw new Error(j?.error?.message ?? `Anthropic HTTP ${r.status}`);
+    if (!r.ok) { await settle({input_tokens:0,output_tokens:0}); throw new HttpError(502,"upstream","The language provider rejected the request."); }
+    await settle(j.usage);
     usage = j.usage;
     for (const b of j.content ?? []) {
       if (b.type === "text") finalText += b.text;
@@ -103,43 +94,83 @@ function extractJson(text: string) {
   try { return JSON.parse(text.slice(a, b + 1)); } catch { return null; }
 }
 
-Deno.serve(async (req) => {
+serve("indai-brain",async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const key = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
   const pass = Deno.env.get("INDAI_PASSCODE") ?? "";
-  if (req.method === "GET") return json({ configured: !!key, passcode: !!pass, memory: !!SB_KEY });
-  if (pass && req.headers.get("x-indai-pass") !== pass) return json({ error: "passcode", message: "Wrong or missing INDAI passcode." }, 401);
-  let body: any;
-  try { body = await req.json(); } catch { return json({ error: "bad_request" }, 400); }
+  if (req.method === "GET") return json({ configured: !!key, passcode: !!pass, memory: !!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") });
+  if (req.method !== "POST") return json({error:"method",message:"Use GET or POST."},405);
+  let body: any, session = "default", talkUser: string | null = null;
+  try {
+    body = await objectBody(req);
+    markMode(req,body.mode??"trade");
+    if (body.mode === "talk" || body.mode === "history") session = sessionName(body.session);
+    if (body.mode === "history") {
+      const user = await account(req);
+      if (body.op === "clear") { await clearHistory(user, session); return json({turns:[]}); }
+      if (body.op === "list") return json({turns:await recentTurns(user, session)});
+      throw new HttpError(400,"bad_request","Choose list or clear.");
+    }
+    if (body.mode === "talk") {
+      if (body.request_id != null && !uuid.test(body.request_id)) throw new HttpError(400,"bad_request","request_id must be a UUID.");
+    }
+    if (body.mode === "profile") return await profile(req, body);
+  } catch (e) { return failure(e); }
   // Memory works whether or not the thinking key is set, so teaching INDAI never fails.
   if (body?.mode === "memory") {
     try {
-      if (body.op === "add") return json({ added: await memAdd([body.text], clean(body.kind) || "note"), memory: await memList() });
-      if (body.op === "forget") { await memForget(body.ids ?? []); return json({ memory: await memList() }); }
-      return json({ memory: await memList() });
-    } catch (e) { return json({ error: "memory", message: String((e as Error).message ?? e) }, 502); }
+      const user = await account(req);
+      if (body.op === "add") return json({ added: await memAdd(user,[body.text],[body.kind]), memory: await memList(user) });
+      if (body.op === "forget") { await memForget(user,body.ids ?? []); return json({ memory: await memList(user) }); }
+      return json({ memory: await memList(user) });
+    } catch(e) { return failure(e); }
   }
   if (!key) return json({ error: "not_configured", message: "INDAI's research needs an Anthropic API key saved as the ANTHROPIC_API_KEY secret." }, 503);
+  const streaming = body?.mode === "talk" && body.stream === true;
+  try {
+    talkUser = await account(req,true);
+    // Stateless streams combine their rate check with their first token reservation.
+    if (talkUser || !streaming) await rateLimit(talkUser);
+  } catch(e) { return failure(e); }
   if (body?.mode === "talk") {
     const name = String(body?.name ?? "there").slice(0, 30);
     const now = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" }).format(new Date());
-    const memory = await memList();
-    const history = (Array.isArray(body?.history) ? body.history : []).slice(-16)
+    let memory: any[] = [];
+    let prior = Array.isArray(body.history) ? body.history : [];
+    try {
+      if (talkUser) [memory, prior] = await Promise.all([
+        memList(talkUser, 40),
+        prior.length ? Promise.resolve(prior) : recentTurns(talkUser, session),
+      ]);
+    } catch(e) { return failure(e); }
+    const history = prior.slice(-16)
+      .filter((h: any) => h && typeof h === "object")
       .map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: clean(h.text) })).filter((h: any) => h.content);
     // the API wants alternating turns that start with the user
     const turns: any[] = [];
     for (const h of history) { if (turns.length && turns[turns.length - 1].role === h.role) turns[turns.length - 1].content += " " + h.content; else turns.push(h); }
     while (turns.length && turns[0].role !== "user") turns.shift();
     while (turns.length && turns[turns.length - 1].role !== "assistant") turns.pop();
-    const system = `${TALK_SYSTEM}\n\nTrader: ${name}. Now: ${now} (New York).\nmemory = ${JSON.stringify(memory.map((m: any) => ({ id: m.id, text: m.text })))}\nspeech_habits = ${JSON.stringify(body?.speech ?? {}).slice(0, 1500)}`;
+    const system = `${TALK_SYSTEM}\n\nTrader: ${name}. Now: ${now} (New York).\nmemory = ${JSON.stringify(memory.map((m: any) => ({ id: m.id, kind: m.kind, text: m.text })))}\nspeech_habits = ${JSON.stringify(body?.speech ?? {}).slice(0, 1500)}`;
     const userText = `They said (as heard): "${clean(body?.question).slice(0, 600)}"\ncontext = ${JSON.stringify(body?.context ?? {}).slice(0, 12000)}`;
     try {
-      const { finalText, sources, usage } = await callClaude(key, MODELS.talk, system, userText, { history: turns, maxTokens: 700, searches: 2 });
+      const finish = async (parsed: any, sources: any[], usage: any) => {
+        let remembered: any[] = [];
+        if (talkUser) {
+          if (Array.isArray(parsed.remember) && parsed.remember.length) remembered = await memAdd(talkUser,parsed.remember,Array.isArray(parsed.remember_kinds) ? parsed.remember_kinds : []);
+          const known = new Set(memory.map(m=>Number(m.id)));
+          const used = ids(parsed.used_ids).filter(id=>known.has(id));
+          if (used.length) await rpc("indai_use_memories",{p_user:talkUser,p_ids:used});
+          await memForget(talkUser,ids(parsed.forget).filter(id=>known.has(id)));
+        }
+        if (talkUser) await saveTurns(talkUser,session,clean(body.question),String(parsed.spoken),body.request_id ?? null);
+        return { mode: "talk", model: MODELS.talk, result: parsed, remembered, sources, usage };
+      };
+      if (body.stream === true) return await streamTalk({key, model: MODELS.talk, system, userText, history: turns, search: body.search !== false, admitGuest: talkUser === null, signal: req.signal, headers: CORS, finish});
+      const { finalText, sources, usage } = await callClaude(key, MODELS.talk, system, userText, { history: turns, maxTokens: 700, searches: body.search === false ? 0 : 2 });
       const parsed = extractJson(finalText) ?? { spoken: finalText.replace(/[{}"]/g, "").slice(0, 400) };
-      let remembered: any[] = [];
-      try { if (Array.isArray(parsed.remember) && parsed.remember.length) remembered = await memAdd(parsed.remember, "learned"); if (Array.isArray(parsed.forget) && parsed.forget.length) await memForget(parsed.forget); } catch { /* memory is best effort */ }
-      return json({ mode: "talk", model: MODELS.talk, result: parsed, remembered, sources, usage });
-    } catch (e) { return json({ error: "upstream", message: String((e as Error).message ?? e) }, 502); }
+      return json(await finish(parsed, sources, usage));
+    } catch(e) { return failure(e); }
   }
   const mode = body?.mode === "chat" ? "chat" : "trade";
   const model = MODELS[body?.depth === "deep" ? "deep" : "fast"];
@@ -152,9 +183,9 @@ Deno.serve(async (req) => {
   try {
     const { finalText, sources, usage } = await callClaude(key, model, mode === "trade" ? SYSTEM : CHAT_SYSTEM, userText);
     const parsed = extractJson(finalText);
-    if (!parsed) return json({ error: "parse", raw: finalText.slice(0, 2000), sources }, 502);
+    if (!parsed) return json({ error: "parse", message:"The provider returned an incomplete assessment.", raw:"", sources }, 502);
     return json({ mode, model, result: parsed, sources, usage });
   } catch (e) {
-    return json({ error: "upstream", message: String((e as Error).message ?? e) }, 502);
+    return failure(e);
   }
 });
