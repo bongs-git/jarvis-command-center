@@ -422,6 +422,11 @@ export class IndaiPanel extends Panel {
     this.button('selftest', 150, 12, 150, 38, ind._testing ? 'Testing…' : 'Self-test', { size: 18, color: C.line, disabled: !!ind._testing, onClick: () => ind.selfTest() });
     this.button('gestures', 310, 12, 150, 38, 'Gestures', { size: 18, color: C.violet, active: !!this.app.tutorial, onClick: () => this.app.tutorial ? this.app.endTutorial(false) : this.app.startTutorial() });
     let y = a.y;
+    if ((vs.listening || vs.transcribing) && vs.heard) {      // what she has heard so far, while you are still talking
+      rrect(ctx, a.x, y, a.w, 44, 12); ctx.fillStyle = 'rgba(251,191,36,0.10)'; ctx.fill();
+      text(ctx, '“' + vs.heard + '…', a.x + 14, y + 30, { size: 21, weight: 500, color: C.amber, max: a.w - 28 });
+      y += 54;
+    }
     const loads = [];
     if (vs.ttsLoad != null) loads.push(`voice ${vs.ttsLoad}%`);
     if (vs.sttLoad != null) loads.push(`listening model ${vs.sttLoad}%`);

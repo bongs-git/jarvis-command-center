@@ -7,7 +7,7 @@ import { STRATEGIES, PROFILES, buildPlan, temperature, scanSetups, suggestContra
 import { Indai } from './indai.js';
 import { relay } from './relay.js';
 import { bs, yearsTo } from './options.js';
-import { handPose, GestureTracker } from './gestures.js';
+import { handPose, GestureTracker, HAND_JOINTS, FINGERTIPS, LEVELS as GESTURE_LEVELS } from './gestures.js';
 import { SceneManager, SCENES, sceneName } from './scenes.js';
 import { fmtPrice, fmtMoney } from './hud.js';
 import { initUI } from './ui.js';
@@ -864,14 +864,48 @@ for (let i = 0; i < 2; i++) {
   const hand = renderer.xr.getHand(i);
   scene.add(hand);
 }
-const jointGeo = new THREE.SphereGeometry(0.0055, 10, 8);
-const jointMat = new THREE.MeshBasicMaterial({ color: 0x9fe6ff, transparent: true, opacity: 0.8 });
+const jointGeo = new THREE.SphereGeometry(0.0048, 10, 8), tipGeo = new THREE.SphereGeometry(0.0078, 12, 10);
+const HAND_COL = { idle: 0x9fe6ff, pinch: 0xb79cff, fist: 0xf0c674, armed: 0xf0c674, fired: 0x34d399 };
+const BONES = [];
+for (const f of ['thumb', 'index-finger', 'middle-finger', 'ring-finger', 'pinky-finger']) {
+  const chain = HAND_JOINTS.filter(n => n.startsWith(f + '-'));
+  BONES.push(['wrist', chain[0]]); for (let k = 0; k < chain.length - 1; k++) BONES.push([chain[k], chain[k + 1]]);
+}
+const handVis = [0, 1].map(() => {
+  const mat = new THREE.MeshBasicMaterial({ color: HAND_COL.idle, transparent: true, opacity: 0.9, depthTest: false });
+  const lineMat = new THREE.LineBasicMaterial({ color: HAND_COL.idle, transparent: true, opacity: 0.45, depthTest: false });
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(BONES.length * 6), 3));
+  const bones = new THREE.LineSegments(geo, lineMat); bones.frustumCulled = false; bones.visible = false; bones.renderOrder = 9; scene.add(bones);
+  const palm = new THREE.Mesh(new THREE.RingGeometry(0.012, 0.016, 24), new THREE.MeshBasicMaterial({ color: HAND_COL.idle, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthTest: false }));
+  palm.visible = false; palm.renderOrder = 9; scene.add(palm);
+  return { mat, lineMat, bones, palm, firedAt: 0 };
+});
 function updateHandVisuals() {
   for (let i = 0; i < 2; i++) {
-    const hand = renderer.xr.getHand(i);
-    for (const j of Object.values(hand.joints || {})) {
-      if (!j.userData.vis) { const m = new THREE.Mesh(jointGeo, jointMat); j.add(m); j.userData.vis = m; }
+    const hand = renderer.xr.getHand(i), hv = handVis[i];
+    let tracked = false;
+    for (const [name, j] of Object.entries(hand.joints || {})) {
+      if (!j.userData.vis) { const m = new THREE.Mesh(FINGERTIPS.includes(name) ? tipGeo : jointGeo, hv.mat); m.renderOrder = 10; j.add(m); j.userData.vis = m; }
+      if (j.visible) tracked = true;
     }
+    const src = xrPointers[i] && xrPointers[i].source;
+    tracked = tracked && !!(src && src.hand);
+    hv.bones.visible = tracked; hv.palm.visible = false;
+    if (!tracked) continue;
+    const pos = hv.bones.geometry.attributes.position; let k = 0;
+    for (const [a, b] of BONES) {
+      const ja = hand.joints[a], jb = hand.joints[b];
+      if (ja && jb) { ja.getWorldPosition(_v); pos.setXYZ(k, _v.x, _v.y, _v.z); jb.getWorldPosition(_v); pos.setXYZ(k + 1, _v.x, _v.y, _v.z); }
+      k += 2;
+    }
+    pos.needsUpdate = true;
+    // colour shows what INDAI sees: violet = pinch, gold = primed for a gesture, green = it fired
+    const side = src.handedness === 'left' ? 'left' : 'right', st = gestures.state, pose = st[side];
+    const armed = st.armed && (st.armed === 'wide' || st.armed === 'close' || st.armed === 'fist-' + side);
+    const col = performance.now() - hv.firedAt < 450 ? HAND_COL.fired : armed ? HAND_COL.armed : pose === 'pinch' ? HAND_COL.pinch : HAND_COL.idle;
+    hv.mat.color.setHex(col); hv.lineMat.color.setHex(col);
+    const pm = app.handInfo && app.handInfo.palms && app.handInfo.palms[side];
+    if (pm) { hv.palm.visible = true; hv.palm.position.set(pm.x, pm.y, pm.z); hv.palm.lookAt(pm.x + pm.nx, pm.y + pm.ny, pm.z + pm.nz); hv.palm.material.color.setHex(col); hv.palm.scale.setScalar(armed ? 1.5 : 1); }
   }
 }
 function haptic(ptr, v = 0.35, ms = 25) {
@@ -960,16 +994,20 @@ function updateXRPointers() {
 }
 
 // ------------------------------------------------------------------ hand gestures
-const JOINTS = ['wrist', 'middle-finger-metacarpal', 'thumb-tip', 'index-finger-tip', 'middle-finger-tip', 'ring-finger-tip', 'pinky-finger-tip'];
+const flashHands = () => { const n = performance.now(); handVis.forEach(h => { h.firedAt = n; }); for (const p of xrPointers) haptic(p, 0.7, 60); };
 const gestures = new GestureTracker({
-  onExplode: (sym) => { app.tutorialEvent('explode'); say(`Exploding ${sym || app.settings.main}.`, 'info', { speak: false }); app.openDeepDive(sym || app.settings.main); },
-  onConsolidate: () => { app.tutorialEvent('consolidate'); app.consolidate(); },
-  onExpand: () => { app.tutorialEvent('expand'); app.restoreAll(); },
+  onExplode: (sym) => { flashHands(); app.tutorialEvent('explode'); say(`Exploding ${sym || app.settings.main}.`, 'info', { speak: false }); app.openDeepDive(sym || app.settings.main); },
+  onConsolidate: () => { flashHands(); app.tutorialEvent('consolidate'); app.consolidate(); },
+  onExpand: () => { flashHands(); app.tutorialEvent('expand'); app.restoreAll(); },
 });
 app.handInfo = { left: null, right: null, dist: null, at: 0 };
+app.setGestures = (level, { announce = true } = {}) => {
+  app.settings.gestures = level; app.saveSettings(); gestures.level = GESTURE_LEVELS[level] ? level : 'normal';
+  if (announce) say(level === 'off' ? 'Hand gestures are off. Pinch to click still works.' : level === 'easy' ? 'Gestures set to easy. They trigger with less effort.' : level === 'strict' ? 'Gestures set to strict. They need a more deliberate move.' : 'Gestures set to normal.', 'info');
+};
+const JOINTS = HAND_JOINTS;
 function symbolUnder(ptr) {
-  const h = ptr.hit;
-  if (!h || !h.panel) return null;
+  const h = ptr.hit; if (!h || h.orb || !h.panel) return null;
   const b = h.panel.buttonAt(h.px);
   if (b && b.sym) return b.sym;
   if (h.panel.id === 'chart') return app.settings.main;
@@ -977,30 +1015,32 @@ function symbolUnder(ptr) {
   return null;
 }
 function updateGestures(now) {
-  const poses = { left: null, right: null }, tgt = { left: null, right: null };
+  const level = app.settings.gestures || 'normal';
+  const poses = { left: null, right: null }, tgt = { left: null, right: null }, busy = { left: false, right: false };
   for (const ptr of xrPointers) {
-    const src = ptr.source;
-    if (!src || !src.hand) continue;
-    const hand = renderer.xr.getHand(ptr.i);
-    const joints = {};
+    const src = ptr.source; if (!src || !src.hand) continue;
+    const hand = renderer.xr.getHand(ptr.i); const joints = {};
     for (const n of JOINTS) { const j = hand.joints && hand.joints[n]; if (!j || !j.visible) break; j.getWorldPosition(_v); joints[n] = { x: _v.x, y: _v.y, z: _v.z }; }
     const side = src.handedness === 'left' ? 'left' : 'right';
-    poses[side] = handPose(joints);
-    tgt[side] = symbolUnder(ptr);
+    poses[side] = handPose(joints); tgt[side] = symbolUnder(ptr); busy[side] = !!(ptr.drag || ptr.press);
   }
-  if (poses.left || poses.right) gestures.update(now, poses, tgt);
-  // what the headset sees, for the gesture tutorial (and a one-time offer of it)
-  const L = poses.left, R = poses.right;
-  app.handInfo = { left: L ? L.pose : null, right: R ? R.pose : null, dist: L && R ? Math.hypot(L.palm.x - R.palm.x, L.palm.y - R.palm.y, L.palm.z - R.palm.z) : null, at: now };
+  const t = app.tutorial, step = t && TUTORIAL[t.i].id;
+  if (level !== 'off' || t) {
+    gestures.level = GESTURE_LEVELS[level] ? level : 'normal';
+    gestures.update(now, poses, tgt, { busy, canConsolidate: !app.consolidated || step === 'consolidate', canExpand: !!app.consolidated || step === 'expand' });
+  }
+  // what the headset sees, for the hand dots and the gesture tutorial
+  const L = poses.left, R = poses.right, st = gestures.state;
+  const pm = (p) => p && { x: p.palm.x, y: p.palm.y, z: p.palm.z, nx: p.normal.x, ny: p.normal.y, nz: p.normal.z };
+  app.handInfo = { left: L ? st.left || L.pose : null, right: R ? st.right || R.pose : null, dist: L && R ? st.dist : null, armed: st.armed, palms: { left: pm(L), right: pm(R) }, at: now };
   if (L || R) {
     app.tutorialEvent('hands');
-    const t = app.tutorial;
     if (t && !t.started && !t.doneAt) {
-      const id = TUTORIAL[t.i].id, hi = app.handInfo, closed = (p) => p === 'pinch' || p === 'fist';
-      const inPos = id === 'pinch' ? (hi.left === 'open' || hi.right === 'open' || hi.left === 'relaxed' || hi.right === 'relaxed')
-        : id === 'explode' ? (closed(hi.left) || closed(hi.right))
-        : id === 'consolidate' ? (hi.dist != null && hi.dist > 0.35 && !closed(hi.left) && !closed(hi.right))
-        : id === 'expand' ? (hi.dist != null && hi.dist < 0.18) : false;
+      const hi = app.handInfo;
+      const inPos = step === 'pinch' ? !!(hi.left || hi.right)
+        : step === 'explode' ? !!(st.armed && st.armed.startsWith('fist'))
+        : step === 'consolidate' ? st.armed === 'wide'
+        : step === 'expand' ? st.armed === 'close' : false;
       if (inPos) { t.started = true; P.coach.dirty = true; }
     }
     if (app.tutorial) app.markDirty('coach');
@@ -1016,9 +1056,9 @@ const TUTORIAL = [
   { id: 'hands', icon: 'hands', start: 'controllers', finish: 'hands', title: 'Use your hands', lines: ['Start: controllers in your hands.', 'Finish: set them down. Your hands show up as small dots.'] },
   { id: 'pinch', icon: 'pinch', finish: 'pinch', title: 'Point and pinch to click', lines: ['Start: point at any button with your index finger.', 'Finish: tap your thumb and index finger together. Keep your palm facing away.'] },
   { id: 'drag', icon: 'drag', start: 'drag', finish: 'dragEnd', title: 'Move a screen', lines: ['Start: point at the bar along the top of a screen, then pinch and hold.', 'Finish: move your hand, then open it to drop the screen.'] },
-  { id: 'explode', icon: 'explode', finish: 'explode', title: 'Explode a ticker', lines: ['Start: point at a ticker in the watchlist and pinch, or make a fist.', 'Finish: quickly flick your fingers wide open. Its deep dive opens.'] },
-  { id: 'consolidate', icon: 'together', finish: 'consolidate', title: 'Collapse everything', lines: ['Start: both hands open, about shoulder-width apart.', 'Finish: bring them together quickly until they almost touch.'] },
-  { id: 'expand', icon: 'apart', finish: 'expand', title: 'Bring the screens back', lines: ['Start: open hands close together.', 'Finish: pull them apart quickly, wider than your shoulders.'] },
+  { id: 'explode', icon: 'explode', finish: 'explode', title: 'Explode a ticker', lines: ['Start: point at a ticker in the watchlist, make a fist and hold it for a beat. Your hand turns gold.', 'Finish: burst your fingers wide open. Its deep dive opens.'] },
+  { id: 'consolidate', icon: 'together', finish: 'consolidate', title: 'Collapse everything', lines: ['Start: open hands, palms facing each other, shoulder-width apart. Hold until they turn gold.', 'Finish: bring them together until they almost touch.'] },
+  { id: 'expand', icon: 'apart', finish: 'expand', title: 'Bring the screens back', lines: ['Start: open hands close together. Hold until they turn gold.', 'Finish: pull them apart, wider than your shoulders.'] },
   { id: 'talk', icon: 'orb', start: 'orbHover', finish: 'talk', title: 'Talk to INDAI', lines: ['Start: point at the glowing orb above the screens.', 'Finish: pinch, then say “brief me”.'] },
 ];
 app.tutorialSteps = TUTORIAL;

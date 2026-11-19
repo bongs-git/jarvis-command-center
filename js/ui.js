@@ -178,7 +178,14 @@ export function initUI(app) {
   let deferred = null;
   window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferred = e; $('btn-install').hidden = false; });
   $('btn-install').addEventListener('click', async () => { if (!deferred) return; deferred.prompt(); await deferred.userChoice.catch(() => {}); deferred = null; $('btn-install').hidden = true; });
-  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('./sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    // The service worker switches on multi-core voice processing. The first time it takes over, reload once (only during start-up).
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      let done = false; try { done = !!sessionStorage.getItem('indai.coi'); } catch { done = true; }
+      if (!self.crossOriginIsolated && !done && !app.inXR && performance.now() < 20000) { try { sessionStorage.setItem('indai.coi', '1'); } catch {} location.reload(); }
+    });
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
   const qp = new URLSearchParams(location.search);
   if (qp.get('settings') === '1') app.openSettings();
   if (qp.get('calc') === '1') app.openCalc();

@@ -11,6 +11,7 @@ import { fmtPrice, fmtMoney } from './hud.js';
 import { LEADLAG } from './feeds.js';
 import { STRATEGIES, PROFILES, buildPlan } from './signals.js';
 import { levelSourceLabel } from './panels.js';
+import { SpeechMemory, similar } from './speech.js';
 
 const ALIASES = {
   spy: 'SPY', spiders: 'SPY', 'the spy': 'SPY',
@@ -80,6 +81,8 @@ export class Indai {
     this.thinking = null;
     this.lastSpoken = '';
     this.brain = { configured: false, checked: false };
+    this.speech = new SpeechMemory();     // what she has learned about how this person talks
+    this.lastHeard = null; this.missed = null; this.confirm = null; this.followUp = 0;
     this.voice = new VoiceIO({
       getSettings: () => app.settings,
       onState: (st) => { app.markDirty('indai'); app.markDirty('dock'); this.maybeAutoListen(st); },
@@ -103,17 +106,20 @@ export class Indai {
   setMuted(m) { this.muted = m; if (m) this.voice.stopSpeaking(); this.app.markDirty('indai'); }
   setThinking(t) { this.thinking = t; this.app.markDirty('indai'); }
 
-  // Push-to-talk. Call again while listening to stop early.
-  async talk() {
+  // Talk to INDAI. Call again while listening to stop early. `quiet` is the hands-free follow-up:
+  // the mic opens by itself after she answers, and closes without comment if nothing is said.
+  async talk({ quiet = false } = {}) {
     const v = this.voice;
     if (v.state.listening) { v.stop(); return; }
     if (v.state.transcribing) return;
     if (!v.canListen) { this.say("Voice input isn't available in this browser. The buttons do everything voice can.", 'info', { speak: false }); return; }
     v.unlock();
-    if (!v.state.sttReady && v.state.sttLoad == null && !v.SR) this.say('Getting my ears ready. The first time takes a minute while the listening model downloads.', 'info', { speak: false });
+    this.followUp = 0; clearTimeout(this._fu);
+    if (!quiet && !v.state.sttReady && v.state.sttLoad == null && !v.SR) this.say('Getting my ears ready. The first time takes a minute while the listening model downloads.', 'info', { speak: false });
     let text = '';
-    try { text = await v.listen(); }
+    try { text = await v.listen({ waitMs: quiet ? 5500 : 7000 }); }
     catch (e) {
+      if (quiet) return;
       const msg = String(e && (e.message || e.name) || e);
       if (/NotAllowed|denied|not-allowed|Permission/i.test(msg)) this.say('I need microphone permission. Allow the mic for this site, then try again.', 'risk', { speak: false });
       else this.say('I could not listen: ' + msg, 'info', { speak: false });
@@ -121,27 +127,157 @@ export class Indai {
     }
     if (text == null) return;
     text = text.replace(/\[[^\]]*\]|\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
-    if (!text || /^(you|thank you\.?|thanks for watching\.?|\.)$/i.test(text)) { this.say("I didn't catch that. Hold the button and speak a little closer.", 'info', { speak: false }); return; }
-    this.say(`“${text}”`, 'you', { speak: false });
-    await this.handle(text);
+    if (!text || /^(you|thank you\.?|thanks for watching\.?|bye\.?|\.+|uh+|um+|hmm+)$/i.test(text)) { if (!quiet) this.say("I didn't catch that. Go ahead, I'm listening.", 'info', { speak: false }); if (!quiet) this.keepListening(); return; }
+    const fixed = this.speech.normalize(text);
+    this.say(`“${fixed}”`, 'you', { speak: false });
+    const res = await this.handle(fixed, { voice: true, quiet });
+    if (res !== 'end') this.keepListening();
+  }
+  // Keep the conversation going: once she has finished answering, listen for a follow-up without a button press.
+  keepListening() {
+    if (this.app.settings.handsFree === false || !this.voice.canListen) return;
+    this.followUp = Date.now();
+    setTimeout(() => this.maybeAutoListen(this.voice.state), 500);
   }
 
-  async handle(raw) {
+  // Returns 'ok' (handled), or 'end' (the conversation is over for now).
+  async handle(raw, { voice = false, quiet = false } = {}) {
     const cleaned = wordsToNumbers(stripWake(raw));
+    const low = cleaned.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+    const prev = this.lastHeard;
+    this.lastHeard = { text: cleaned, at: Date.now() };
     try {
-      if (this.awaiting) {
-        if (/^\s*(cancel|stop|never ?mind|skip( it)?|later)\b/i.test(cleaned)) { this.awaiting = null; this.say('No problem. Tap Start day when you want to set the plan.', 'info'); return; }
-        if (await this.answerPlan(cleaned)) return;
+      if (/^(that s all|that ll be all|that is all|thanks|thank you|thanks a lot|stop listening|goodbye|bye|i m done|im done|nothing|no thanks|never mind that s all)( indai)?$/.test(low)) { if (!quiet) this.say('Anytime.', 'info'); return 'end'; }
+      // she got it wrong and is being told so: learn from it
+      const corr = cleaned.match(/^(?:no[, ]+|nope[, ]+|sorry[, ]+)?(?:i said|i meant|i mean|what i said was|i was saying)[, ]+(.+)$/i);
+      if (corr && prev) {
+        const meant = corr[1].trim();
+        if (this.speech.learn(prev.text, meant)) this.say(`Got it: “${meant}”. I'll know that next time.`, 'good', { speak: false });
+        this.missed = null;
+        return await this.handle(meant, { voice, quiet });
       }
-      if (looksLikeTradeIdea(cleaned)) return await this.analyzeText(cleaned);
-      if (this.tryCommand(cleaned)) return;
-      if (/\b(analy[sz]e|check|rate|score|grade|what about|how about|thoughts on)\b/i.test(cleaned) && /\b(calls?|puts?)\b/i.test(cleaned)) return await this.analyzeText(cleaned);
-      return await this.chat(cleaned);
+      if (/^(no )?(that s|that is|thats)? ?(wrong|not right|not what i said|incorrect)$|^you (misheard|got (it|that) wrong|heard (me|that) wrong)( me)?$/.test(low) && prev) {
+        this.missed = { text: prev.text, at: Date.now(), teach: true };
+        this.say("Sorry about that. Say it once more and I'll learn it.", 'info');
+        return 'ok';
+      }
+      if (this.confirm) {
+        const c = this.confirm; this.confirm = null;
+        if (/^(yes|yeah|yep|yup|correct|right|that s right|exactly|do it|sure|please|i did)\b/.test(low)) { this.speech.learn(c.heard, c.phrase); this.lastHeard = { text: c.phrase, at: Date.now() }; await this.route(c.phrase); this.speech.heard(true, c.phrase); return 'ok'; }
+        if (/^(no|nope|nah)$/.test(low)) { this.missed = { text: c.heard, at: Date.now(), teach: true }; this.say("Okay. Say it again and I'll learn it.", 'info'); return 'ok'; }
+      }
+      if (await this.route(cleaned) === 'ok') {
+        // a repeat that worked right after a miss teaches her what the miss meant
+        const m = this.missed;
+        if (m && (m.teach ? Date.now() - m.at < 40e3 : Date.now() - m.at < 20e3 && similar(m.text, cleaned) > 0.2) && this.speech.learn(m.text, cleaned)) this.say(`Learned: “${m.text}” means “${cleaned}”.`, 'good', { speak: false });
+        this.missed = null; this.speech.heard(true, cleaned);
+        return 'ok';
+      }
+      return await this.interpret(cleaned, { quiet });
     } catch (e) {
       console.warn(e);
       this.setThinking(null);
       this.say('Something went wrong: ' + (e.message || e), 'info', { speak: false });
+      return 'ok';
     }
+  }
+  // The things she can do directly. 'ok' if one of them took it.
+  async route(cleaned) {
+    if (this.awaiting) {
+      if (/^\s*(cancel|stop|never ?mind|skip( it)?|later)\b/i.test(cleaned)) { this.awaiting = null; this.say('No problem. Tap Start day when you want to set the plan.', 'info'); return 'ok'; }
+      if (await this.answerPlan(cleaned)) return 'ok';
+    }
+    if (looksLikeTradeIdea(cleaned)) { await this.analyzeText(cleaned); return 'ok'; }
+    if (this.tryCommand(cleaned)) return 'ok';
+    if (/\b(analy[sz]e|check|rate|score|grade|what about|how about|thoughts on)\b/i.test(cleaned) && /\b(calls?|puts?)\b/i.test(cleaned)) { await this.analyzeText(cleaned); return 'ok'; }
+    return 'unknown';
+  }
+  lexicon() {
+    const syms = this.app.settings.symbols || [];
+    return ['brief me', 'start my day', 'check the temperature', 'open the calculator', 'give me a summary', 'bring the screens back', 'close', 'show the details',
+      'recenter', 'mute', 'unmute', 'undo', 'repeat that', 'self test', 'practice alert', 'gesture tutorial', 'next scene', 'passthrough', 'open tradingview',
+      'switch to the loft', 'switch to midnight', 'show me the ocean', 'take me to orbit', 'switch to the command deck',
+      'one minute chart', 'five minute chart', 'fifteen minute chart', 'show vwap', 'hide vwap', 'show gex', 'hide gex', 'show ema', 'hide ema',
+      'go conservative', 'go balanced', 'go aggressive', 'gestures off', 'gestures on', 'what do you remember', 'stop listening',
+      ...syms.flatMap(s => [`show ${s}`, `deep dive on ${s}`])];
+  }
+  // Not a direct command. Work out what was meant: her brain if it is on, otherwise the closest thing she knows.
+  async interpret(cleaned, { quiet = false } = {}) {
+    const m = this.missed;
+    if (m && !m.teach && Date.now() - m.at < 9000) {
+      // probably one sentence that got split by a pause: try the two halves together
+      if (await this.route(m.text + ' ' + cleaned) === 'ok') { this.voice.cutOffEarly(); this.missed = null; this.speech.heard(true); return 'ok'; }
+    }
+    if (this.brain.configured) { if (await this.converse(cleaned)) return 'ok'; }
+    const words = cleaned.trim().split(/\s+/).length;
+    const top = words <= 7 ? this.speech.best(cleaned, this.lexicon()) : null;
+    if (top && top.score >= 0.8) {
+      this.say(`Taking that as “${top.phrase}”.`, 'info', { speak: false });
+      this.speech.learn(cleaned, top.phrase); this.speech.heard(true, top.phrase); this.missed = null;
+      await this.route(top.phrase);
+      return 'ok';
+    }
+    if (top && top.score >= 0.58 && !quiet) { this.confirm = { heard: cleaned, phrase: top.phrase }; this.say(`Did you mean “${top.phrase}”?`, 'info'); return 'ok'; }
+    this.speech.heard(false);
+    this.missed = { text: cleaned, at: Date.now() };
+    if (quiet) return 'end';                                   // talk in the room during a follow-up: let it go
+    const name = this.app.settings.name || '';
+    if (/^(hi|hello|hey|good (morning|afternoon|evening)|what s up|whats up|yo)\b/i.test(cleaned)) this.say(`Hi${name ? ' ' + name : ''}. I'm here. Want the brief, or have a trade in mind?`, 'info');
+    else if (/\bhow are you\b|\bhow s it going\b|\bhow you doing\b/i.test(cleaned)) this.say("I'm good, and watching the tape. What do you need?", 'info');
+    else if (/\b(who are you|what can you do|what do you do|help)\b/i.test(cleaned)) this.say('I rate trade ideas, brief you, deep dive a ticker, watch for your setups, run the calculator and log trades. Just say it the way you would to a person.', 'info');
+    else this.say(`I heard “${cleaned}”, and I'm not sure what you'd like. Say it another way and I'll learn it.`, 'info');
+    return 'ok';
+  }
+  liveContext() {
+    const app = this.app, sym = app.settings.main, q = app.feed.quote(sym), lv = app.levelsFor(sym);
+    return {
+      watchlist: Object.fromEntries(app.settings.symbols.map(s => { const x = app.feed.quote(s); return [s, x ? { price: x.last, pct: Math.round(x.pct * 100) / 100 } : null]; })),
+      mainChart: { symbol: sym, price: q?.last, levels: lv && { callWall: lv.cw, putWall: lv.pw, flip: lv.zg, source: lv.source } },
+      riskBreaker: { state: app.riskState().state, dayPnl: app.day.pnl },
+      plan: app.day.plan ? { capital: app.day.plan.capital, goal: app.day.plan.goal, style: app.day.plan.aggr, strategies: app.day.plan.strategies } : null,
+      lastAnalysis: app.analysis ? { idea: app.analysis.idea, rag: app.analysis.final?.rag || app.analysis.score.rag, score: app.analysis.score.score } : null,
+      scene: app.settings.scene, market: marketStatus().label,
+      dataNote: app.feed.status.mode === 'delayed' ? 'Prices are delayed about 15 minutes.' : app.feed.status.mode,
+    };
+  }
+  // A real back-and-forth with her brain. It can answer, run the command center, fix mishears and remember things.
+  async converse(cleaned) {
+    const app = this.app;
+    this.setThinking('Thinking…');
+    const turns = this.log.filter(l => l.kind === 'you' || !/^(•|Learned:|Taking that as|Noted:)/.test(l.text)).slice(-15)
+      .map(l => ({ role: l.kind === 'you' ? 'user' : 'assistant', text: l.text.replace(/^“|”$/g, '') }));
+    if (turns.length && turns[turns.length - 1].role === 'user') turns.pop();          // the line being answered now
+    try {
+      const res = await relay.brain({ mode: 'talk', name: app.settings.name, question: cleaned, history: turns, context: this.liveContext(), speech: this.speech.habits() }, app.settings.researchPass);
+      this.setThinking(null);
+      const f = res.result || {};
+      if (f.heard_as && similar(f.heard_as, cleaned) < 0.97) this.speech.learn(cleaned, f.heard_as);
+      let ran = false;
+      if (f.command) ran = (await this.route(wordsToNumbers(String(f.command)))) === 'ok';
+      if (f.spoken && (!ran || !this.voice.state.speaking)) this.say(f.spoken, 'info');
+      for (const b of (f.summary || []).slice(0, 4)) this.say('• ' + b, 'info', { speak: false });
+      for (const r of (res.remembered || [])) this.say('Noted: ' + r.text, 'good', { speak: false });
+      this.speech.heard(true); this.missed = null;
+      return true;
+    } catch (e) {
+      this.setThinking(null);
+      if (e.code !== 'not_configured') this.say(`I couldn't reach my thinking brain (${e.message}).`, 'info', { speak: false });
+      return false;
+    }
+  }
+  // Long-term memory: things she is told to remember, kept in the backend so every device shares them.
+  async remember(text) {
+    try { await relay.brain({ mode: 'memory', op: 'add', text, kind: 'taught' }, this.app.settings.researchPass); this.say(`I'll remember that: ${text}`, 'good'); }
+    catch (e) { this.say(`I couldn't save that (${e.message}).`, 'info', { speak: false }); }
+  }
+  async recall() {
+    let mem = [];
+    try { mem = (await relay.brain({ mode: 'memory', op: 'list' }, this.app.settings.researchPass)).memory || []; } catch {}
+    const st = this.speech.stats, rate = st.heard ? Math.round(st.understood / st.heard * 100) : null;
+    this.say(mem.length ? `I'm holding ${mem.length} thing${mem.length === 1 ? '' : 's'} you've taught me, and ${st.fixes} fix${st.fixes === 1 ? '' : 'es'} for how you speak.` : `Nothing saved yet. Say “remember that…” and I'll keep it. I've learned ${st.fixes} fix${st.fixes === 1 ? '' : 'es'} for how you speak.`, 'info');
+    for (const m of mem.slice(-8)) this.say('• ' + m.text, 'info', { speak: false });
+    for (const f of this.speech.list().slice(0, 5)) this.say(`• “${f.heard}” means “${f.to}”`, 'info', { speak: false });
+    if (rate != null) this.say(`• Understood ${rate}% of ${st.heard} things you've said.`, 'info', { speak: false });
   }
 
   tryCommand(raw) {
@@ -154,6 +290,15 @@ export class Indai {
       return up.find(w => app.settings.symbols.includes(w)) || null;
     };
     if (/^ (stop|cancel|quiet|shh|never mind|nevermind)( talking)? $/.test(t)) { this.voice.stopSpeaking(); return true; }
+    // teaching and memory
+    const rem = raw.match(/^\s*(?:please )?(?:remember|note|keep in mind|don'?t forget|make a note)(?: that| this)?[,: ]+(.{4,})$/i);
+    if (rem) { this.remember(rem[1].trim()); return true; }
+    if (/\bwhat (do|did) you (remember|know about me)\b|\bwhat have (you learned|i taught you)\b|\bhow well do you (understand|hear) me\b/.test(t)) { this.recall(); return true; }
+    if (/\b(hands ?free|follow ups?|keep listening) (off|on)\b/.test(t)) { const on = / on $/.test(t); app.settings.handsFree = on; app.saveSettings(); this.say(on ? "Hands-free is on. After I answer, I'll listen for your reply." : "Hands-free is off. Tap Talk or pinch the orb when you want me.", 'info'); return true; }
+    if (/\bgestures? (off|on|easy|easier|normal|strict|stricter|harder|less sensitive|more sensitive)\b|\b(turn|switch) (off|on) (the |hand )?gestures\b/.test(t)) {
+      const lvl = /\boff\b/.test(t) ? 'off' : /easy|easier|more sensitive/.test(t) ? 'easy' : /strict|harder|less sensitive/.test(t) ? 'strict' : 'normal';
+      app.setGestures(lvl); return true;
+    }
     // scenes: passthrough or a virtual space
     if (/\b(pass ?through|my (real )?room|real world|see my room)\b/.test(t) && !/\b(calls?|puts?)\b/.test(t)) { app.setScene('passthrough'); return true; }
     if (/\b(next|another|different|change( the)?|switch( the)?) (scene|background|environment|space|view)\b/.test(t)) { app.cycleScene(1); return true; }
@@ -272,10 +417,18 @@ export class Indai {
 
   // ---------------------------------------------------------------- morning check-in / game plan
   maybeAutoListen(st) {
-    if (!this.autoListen || st.speaking || st.listening || st.transcribing) return;
-    if (Date.now() - this.autoListen > 60e3) { this.autoListen = 0; return; }
-    this.autoListen = 0;
-    setTimeout(() => { if (this.awaiting && !this.voice.state.listening) this.talk(); }, 350);
+    if (st.speaking || st.listening || st.transcribing || this.thinking) return;
+    if (this.autoListen) {
+      if (Date.now() - this.autoListen > 60e3) { this.autoListen = 0; return; }
+      this.autoListen = 0;
+      setTimeout(() => { if (this.awaiting && !this.voice.state.listening) this.talk(); }, 350);
+      return;
+    }
+    if (this.followUp) {
+      const fresh = Date.now() - this.followUp < 120e3;
+      this.followUp = 0; clearTimeout(this._fu);
+      if (fresh) this._fu = setTimeout(() => { const s = this.voice.state; if (!s.speaking && !s.listening && !s.transcribing && !this.thinking && !this.muted) this.talk({ quiet: true }); else if (s.speaking || this.thinking) this.followUp = Date.now(); }, 450);
+    }
   }
   ask(question, step, { voice = false } = {}) {
     this.awaiting = step;
@@ -537,30 +690,5 @@ export class Indai {
   }
 
   // ---------------------------------------------------------------- open questions
-  async chat(question) {
-    const app = this.app;
-    if (!this.brain.configured) {
-      this.say('I can rate trade ideas, brief you, deep dive a ticker, open the calculator, or log trades. For open questions I need the research key switched on.', 'info');
-      return;
-    }
-    this.setThinking('Thinking…');
-    const sym = app.settings.main, q = app.feed.quote(sym), lv = app.levelsFor(sym);
-    const context = {
-      watchlist: Object.fromEntries(app.settings.symbols.map(s => { const x = app.feed.quote(s); return [s, x ? { price: x.last, pct: Math.round(x.pct * 100) / 100 } : null]; })),
-      mainChart: { symbol: sym, price: q?.last, levels: lv && { callWall: lv.cw, putWall: lv.pw, flip: lv.zg, source: lv.source } },
-      riskBreaker: { state: app.riskState().state, dayPnl: app.day.pnl },
-      lastAnalysis: app.analysis ? { idea: app.analysis.idea, rag: app.analysis.final?.rag || app.analysis.score.rag, score: app.analysis.score.score } : null,
-      dataNote: app.feed.status.mode === 'delayed' ? 'Prices are delayed about 15 minutes.' : app.feed.status.mode,
-    };
-    try {
-      const res = await relay.brain({ mode: 'chat', depth: 'fast', name: app.settings.name, question, context }, app.settings.researchPass);
-      this.setThinking(null);
-      const f = res.result || {};
-      this.say(f.spoken || 'Done.', 'info');
-      for (const b of (f.summary || []).slice(0, 5)) this.say('• ' + b, 'info', { speak: false });
-    } catch (e) {
-      this.setThinking(null);
-      this.say(`I couldn't reach my research brain (${e.message}).`, 'info', { speak: false });
-    }
-  }
+  async chat(question) { return this.interpret(question); }
 }

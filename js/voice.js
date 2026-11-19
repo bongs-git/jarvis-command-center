@@ -71,7 +71,7 @@ export class VoiceIO {
       this.audioQueue.push({ seq: m.id, samples: m.samples, rate: m.rate });
       this.pump();
     } else if (m.type === 'text') {
-      const p = this.pending.get(m.id); if (p) { this.pending.delete(m.id); p.resolve(m.text); }
+      const p = this.pending.get(m.id); if (p) { this.pending.delete(m.id); if (m.ms != null) this.lastSttMs = m.ms; p.resolve(m.text); }
     } else if (m.type === 'error') {
       if (m.kind === 'stt' && m.id) { const p = this.pending.get(m.id); if (p) { this.pending.delete(m.id); p.reject(new Error(m.message)); } }
       if (m.kind === 'tts') {
@@ -163,74 +163,144 @@ export class VoiceIO {
   }
   stopSpeaking() {
     this.epoch++; this.audioQueue = []; this.expectSeq = this.seq;
+    if (this.worker) this.worker.postMessage({ type: 'cancel', epoch: this.epoch });
     if (this.playing) { try { this.playing.onended = null; this.playing.stop(); } catch {} this.playing = null; }
     if ('speechSynthesis' in window) try { speechSynthesis.cancel(); } catch {}
     this.setState({ speaking: false });
   }
 
   // ---------------------------------------------------------------- listening
-  // Records until the speaker pauses (or stop() is called), then returns the transcript.
-  async listen({ maxMs = 15000 } = {}) {
+  // Records until the speaker finishes, then returns the transcript.
+  //   - end of speech is detected from the speaker's own pace (the pause length is learned, see `ears`)
+  //   - transcription starts the moment a pause begins, so the answer is usually ready by the time the pause is confirmed
+  //   - onInterim(text) gets what has been heard so far when the speaker carries on after a short pause
+  //   - quiet: for hands-free follow-ups; gives up silently after `waitMs` with no speech
+  transcribe(audio, { drop } = {}) {
+    const id = this.nextId++;
+    const p = new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
+    this.ensureWorker().postMessage({ type: 'transcribe', id, audio, drop, device: this.webgpu ? 'webgpu' : 'wasm' }, [audio.buffer]);
+    return { id, p };
+  }
+  async listen({ maxMs = 20000, waitMs = 7000, onInterim = null } = {}) {
     if (this.state.listening) { this.stop(); return null; }
     this.stopSpeaking();
     const s = this.getSettings();
     const useBrowser = this.SR && (s.micEngine === 'browser' || (s.micEngine !== 'whisper' && !/OculusBrowser|Quest/i.test(navigator.userAgent)));
-    if (useBrowser) return this.listenBrowser();
+    if (useBrowser) return this.listenBrowser({ onInterim, waitMs });
     if (!this.micOK) throw new Error('This browser cannot use the microphone.');
     this.preload({ tts: false, stt: true });
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    // keep the mic open between turns so follow-ups start instantly
+    let stream = this._stream;
+    if (!stream || !stream.active) stream = this._stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    clearTimeout(this._streamTimer);
     const c = this.audioCtx();
     const src = c.createMediaStreamSource(stream);
-    const proc = c.createScriptProcessor(4096, 1, 1);
+    const proc = c.createScriptProcessor(2048, 1, 1);
+    const sink = c.createGain(); sink.gain.value = 0;
+    const rate = c.sampleRate, frameMs = 2048 / rate * 1000;
+    const ears = this.ears;
     const chunks = [];
-    const rate = c.sampleRate;
-    let speech = false, lastVoice = performance.now(), started = performance.now(), noise = 0.004, frames = 0;
-    this.setState({ listening: true });
+    let speech = false, firstVoice = -1, lastVoice = -1, voicedMs = 0, started = performance.now(), frames = 0;
+    let noise = Math.min(0.02, Math.max(0.002, ears.noise || 0.004)), peak = 0;
+    let spec = null;                     // { id, upTo, p } transcription started at the current pause
+    const endMs = Math.max(450, Math.min(1200, ears.pause || 750));
+    this.setState({ listening: true, heard: '' });
+    const cut = (to) => {
+      const from = Math.max(0, firstVoice - Math.ceil(350 / frameMs)), end = Math.min(chunks.length, to + Math.ceil(250 / frameMs));
+      const part = chunks.slice(from, end), total = part.reduce((a, b) => a + b.length, 0);
+      const all = new Float32Array(total); let o = 0; for (const ch of part) { all.set(ch, o); o += ch.length; }
+      // level the volume so quiet speakers are heard as well as loud ones
+      let mx = 0; for (let i = 0; i < all.length; i++) { const v = Math.abs(all[i]); if (v > mx) mx = v; }
+      if (mx > 0.001 && mx < 0.5) { const g = Math.min(8, 0.7 / mx); for (let i = 0; i < all.length; i++) all[i] *= g; }
+      return resample(all, rate, 16000);
+    };
     return await new Promise((resolve, reject) => {
       const finish = async (reason) => {
         if (!this.state.listening) return;
         this.setState({ listening: false });
-        try { proc.disconnect(); src.disconnect(); } catch {}
-        stream.getTracks().forEach(t => t.stop());
+        try { proc.disconnect(); src.disconnect(); sink.disconnect(); } catch {}
         this._stop = null;
-        if (!speech || reason === 'cancel') { resolve(''); return; }
-        const total = chunks.reduce((a, b) => a + b.length, 0);
-        const all = new Float32Array(total); let o = 0; for (const ch of chunks) { all.set(ch, o); o += ch.length; }
-        const audio = resample(all, rate, 16000);
-        const id = this.nextId++;
+        // let go of the mic if nothing else needs it soon
+        this._streamTimer = setTimeout(() => { if (!this.state.listening && this._stream) { this._stream.getTracks().forEach(t => t.stop()); this._stream = null; } }, 25000);
+        if (!speech || voicedMs < 120 || reason === 'cancel') { if (spec) this.worker.postMessage({ type: 'drop', id: spec.id }); resolve(''); return; }
+        // remember this room and this speaker for next time
+        ears.noise = ears.noise ? ears.noise * 0.8 + noise * 0.2 : noise; ears.level = ears.level ? ears.level * 0.8 + peak * 0.2 : peak; ears.turns = (ears.turns || 0) + 1; this.saveEars();
+        this.lastEnd = { at: performance.now(), reason };
         this.setState({ transcribing: true });
-        this.pending.set(id, { resolve: (t) => { this.setState({ transcribing: false }); resolve(t); }, reject: (e) => { this.setState({ transcribing: false }); reject(e); } });
-        this.worker.postMessage({ type: 'transcribe', id, audio, device: this.webgpu ? 'webgpu' : 'wasm' }, [audio.buffer]);
+        try {
+          let job = spec && spec.upTo === lastVoice ? spec : null;
+          if (spec && !job) this.worker.postMessage({ type: 'drop', id: spec.id });
+          if (!job) job = this.transcribe(cut(lastVoice + 1));
+          const text = await job.p;
+          this.setState({ transcribing: false, heard: '' });
+          resolve(text);
+        } catch (e) { this.setState({ transcribing: false, heard: '' }); reject(e); }
       };
       this._stop = finish;
       proc.onaudioprocess = (e) => {
         const d = e.inputBuffer.getChannelData(0);
         chunks.push(new Float32Array(d));
         let sum = 0; for (let i = 0; i < d.length; i++) sum += d[i] * d[i];
-        const rms = Math.sqrt(sum / d.length), now = performance.now();
+        const rms = Math.sqrt(sum / d.length), now = performance.now(), i = chunks.length - 1;
         frames++;
-        if (frames < 4 && !speech) noise = Math.max(noise, rms * 0.9);
-        const thr = Math.max(0.012, noise * 2.8);
-        if (rms > thr) { speech = true; lastVoice = now; }
+        // the noise floor follows the room: drops quickly, rises slowly, and never learns from speech
+        const thr = Math.max(0.009, noise * 3), keep = Math.max(0.006, noise * 2);
+        const voiced = rms > (speech && i - lastVoice < 6 ? keep : thr);
+        if (!voiced) noise = rms < noise ? noise * 0.7 + rms * 0.3 : noise * 0.97 + rms * 0.03;
+        if (voiced) {
+          if (firstVoice < 0) firstVoice = i;
+          if (lastVoice >= 0 && speech) { const gap = (i - lastVoice) * frameMs; if (gap > 250) ears.gaps = [...(ears.gaps || []), Math.round(gap)].slice(-40); }
+          lastVoice = i; voicedMs += frameMs; if (rms > peak) peak = rms;
+          if (voicedMs > 100) speech = true;
+        } else if (!speech && firstVoice >= 0 && (i - lastVoice) * frameMs > 400) { firstVoice = -1; voicedMs = 0; }   // a click or a bump, not a word
         this.level = rms;
-        if (speech && now - lastVoice > 1300) finish('pause');
-        else if (!speech && now - started > 7000) finish('silence');
+        const quietMs = lastVoice >= 0 ? (i - lastVoice) * frameMs : 0;
+        if (speech && quietMs > 260 && (!spec || spec.upTo !== lastVoice) && this.state.sttReady) {
+          // a pause just began: start on what we have. If they keep talking we show it as the running caption.
+          if (spec) this.worker.postMessage({ type: 'drop', id: spec.id });
+          const upTo = lastVoice, job = this.transcribe(cut(lastVoice + 1));
+          spec = { ...job, upTo };
+          job.p.then((t) => { if (this.state.listening && t) { this.setState({ heard: t }); onInterim?.(t); } }).catch(() => {});
+        }
+        if (speech && quietMs > endMs) finish('pause');
+        else if (!speech && now - started > waitMs) finish('silence');
         else if (now - started > maxMs) finish('max');
       };
-      src.connect(proc); proc.connect(c.destination);
+      src.connect(proc); proc.connect(sink); sink.connect(c.destination);
     });
   }
+  // What INDAI has learned about this speaker and room: noise floor, speaking level, and how long their pauses run.
+  get ears() {
+    if (!this._ears) { try { this._ears = JSON.parse(localStorage.getItem('indai.ears.v1') || '{}'); } catch { this._ears = {}; } }
+    return this._ears;
+  }
+  saveEars() {
+    const e = this.ears;
+    // pause length: long enough to cover this speaker's normal mid-sentence gaps, short enough to feel instant
+    if (e.gaps && e.gaps.length >= 6) { const g = [...e.gaps].sort((a, b) => a - b), p80 = g[Math.floor(g.length * 0.8)]; e.pause = Math.round(Math.max(520, Math.min(1100, (e.pause || 750) * 0.7 + (p80 + 260) * 0.3))); }
+    try { localStorage.setItem('indai.ears.v1', JSON.stringify(e)); } catch {}
+  }
+  // The speaker carried on right after we stopped listening: we cut in too early, so wait a little longer from now on.
+  cutOffEarly() { const e = this.ears; e.pause = Math.min(1200, (e.pause || 750) + 90); this.saveEars(); }
   stop() { if (this._stop) this._stop('stop'); if (this._rec) try { this._rec.stop(); } catch {} }
   cancel() { if (this._stop) this._stop('cancel'); if (this._rec) try { this._rec.abort(); } catch {} }
-  listenBrowser() {
+  listenBrowser({ onInterim = null, waitMs = 7000 } = {}) {
     return new Promise((resolve, reject) => {
       const rec = new this.SR(); this._rec = rec;
-      rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
-      rec.onstart = () => this.setState({ listening: true });
-      rec.onend = () => { this.setState({ listening: false }); this._rec = null; };
-      rec.onerror = (e) => { this.setState({ listening: false }); e.error === 'no-speech' ? resolve('') : reject(new Error(e.error)); };
-      rec.onresult = (e) => resolve(e.results[0][0].transcript);
-      try { rec.start(); } catch (err) { reject(err); }
+      rec.lang = 'en-US'; rec.interimResults = true; rec.maxAlternatives = 3; rec.continuous = false;
+      let final = '', done = false;
+      const end = (v, err) => { if (done) return; done = true; clearTimeout(timer); this.setState({ listening: false, heard: '' }); this._rec = null; err ? reject(err) : resolve(v); };
+      const timer = setTimeout(() => { try { rec.abort(); } catch {} end(''); }, waitMs + 13000);
+      rec.onstart = () => this.setState({ listening: true, heard: '' });
+      rec.onend = () => end(final);
+      rec.onerror = (e) => (e.error === 'no-speech' || e.error === 'aborted') ? end('') : end('', new Error(e.error));
+      rec.onresult = (e) => {
+        let interim = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) { const r = e.results[i]; if (r.isFinal) { final += r[0].transcript; this.alternatives = Array.from(r).map(a => a.transcript); } else interim += r[0].transcript; }
+        const heard = (final + ' ' + interim).trim();
+        if (heard) { this.setState({ heard }); onInterim?.(heard); }
+      };
+      try { rec.start(); } catch (err) { end('', err); }
     });
   }
 }
