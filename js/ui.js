@@ -66,6 +66,7 @@ export function initUI(app) {
     f('s-account').value = s.risk.account; f('s-maxloss').value = s.risk.maxDailyLoss; f('s-riskpct').value = s.risk.riskPct;
     f('s-stoppct').value = s.risk.stopPct; f('s-consec').value = s.risk.maxConsecLosses; f('s-cool').value = s.risk.cooldownMin;
     f('s-scene').value = s.scene || 'passthrough';
+    f('s-gestures').value = s.gestures || 'normal'; f('s-handsfree').value = s.handsFree === false ? 'off' : 'on';
     f('s-voice').checked = s.voice; f('s-vengine').value = s.voiceEngine; vname.value = s.voiceName; f('s-vspeed').value = s.voiceSpeed; f('s-mic').value = s.micEngine;
     f('s-depth').value = s.researchDepth; f('s-rate').value = +(s.rate * 100).toFixed(2); f('s-pass').value = s.researchPass;
     f('s-a-levels').checked = s.alerts.levels; f('s-a-hod').checked = s.alerts.hod; f('s-a-bells').checked = s.alerts.bells; f('s-a-tv').checked = s.alerts.tradingview !== false;
@@ -127,6 +128,8 @@ export function initUI(app) {
     r.cooldownMin = Math.round(num(f('s-cool'), r.cooldownMin, 1, 240));
     s.voice = f('s-voice').checked; readVoice();
     if (f('s-scene').value !== s.scene) app.setScene(f('s-scene').value, { announce: false });
+    if (f('s-gestures').value !== (s.gestures || 'normal')) app.setGestures(f('s-gestures').value, { announce: false });
+    s.handsFree = f('s-handsfree').value !== 'off';
     s.researchDepth = f('s-depth').value; s.rate = num(f('s-rate'), s.rate * 100, 0, 15) / 100; s.researchPass = f('s-pass').value.trim();
     s.alerts.levels = f('s-a-levels').checked; s.alerts.hod = f('s-a-hod').checked; s.alerts.bells = f('s-a-bells').checked; s.alerts.tradingview = f('s-a-tv').checked;
     app.applySettings(prev);
