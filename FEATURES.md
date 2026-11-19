@@ -55,4 +55,9 @@ Still to try on real devices: the on-device voice and microphone on an iPhone an
 | 2026-11-19 | Add a ticker from the watchlist; type the win/loss amount; extended-hours move in the watchlist | js/views.js |
 | 2026-11-19 | Chart fits the session so far (no mostly-empty morning chart); wall, flip and VWAP labels never overlap | js/chart.js |
 | 2026-11-19 | Fresh prices the moment the app comes back to the foreground; quick retry after a failed quote pull | js/app.js `refreshNow` |
+| 2026-11-19 | Thinking budget care: one clear line when the daily budget is used up (no "couldn't reach my thinking brain" plus "I heard …"), built-in commands and market-data ratings carry on; web research that fails twice in a row pauses itself until midnight New York time so it stops spending the budget | js/demo.js |
+| 2026-11-19 | Audible on iPhone: plays through the silent switch, lets go of the mic the moment listening ends (no quiet call volume), wakes the audio engine after the lock screen or another app, falls back to the phone's voice when the natural one is slow to start | js/app.js |
+| 2026-11-19 | Ideas strip on every screen, a card with Analyze and Chart when a new idea lands, and the Ideas list: reasons, sized contract, stop, entry and target, what price did next. The chart marks every idea and draws stop and target for the one in focus | js/ideas.js, js/chart.js |
+| 2026-11-19 | Faster alerts: the scan runs the moment new candles land, bridge candles are picked up within seconds of the minute turning, a "Forming" look at the candle that is still open, and a short spoken alert with the full text on screen | js/app.js `scanTick`, `lookAhead` |
+| 2026-11-19 | No lost ideas: the day's ideas survive reloads, setups missed while the page was closed or asleep are caught up quietly, setups past the hourly alert limit are listed quietly, and nothing new is listed while the breaker has alerts paused | js/app.js `catchUp` |
 
