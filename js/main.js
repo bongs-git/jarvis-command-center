@@ -477,19 +477,56 @@ function scanTick() {
     fireSignal(sig, plan);
   }
 }
-function fireSignal(sig, plan) {
+function fireSignal(sig, plan, { practice = false } = {}) {
   app.signals.unshift(sig); if (app.signals.length > 30) app.signals.length = 30;
-  app.day.signals = (app.day.signals || 0) + 1; saveDay(app.day);
+  if (!practice) { app.day.signals = (app.day.signals || 0) + 1; saveDay(app.day); }
   const k = sig.contract, side = sig.type === 'C' ? 'call' : 'put';
-  const delayed = app.feed.status.mode === 'demo' ? ' Demo data.' : app.feed.status.mode === 'delayed' && !app.feed.bridgeLive ? ' Heads up, this is on delayed data.' : '';
+  const delayed = practice ? '' : app.feed.status.mode === 'demo' ? ' Demo data.' : app.feed.status.mode === 'delayed' && !app.feed.bridgeLive ? ' Heads up, this is on delayed data.' : '';
   const grade = sig.score >= 80 ? 'A-plus' : sig.score >= 70 ? 'strong' : 'decent';
-  const text = `${sig.sym} ${side} setup, ${grade}, score ${sig.score}: ${sig.title}. Idea: the ${k.strike} ${side} ${k.expiry === nextExpiries().today ? 'for today' : 'for ' + new Date(k.expiry + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })}, about ${k.premium.toFixed(2)}, ${k.qty} contract${k.qty > 1 ? 's' : ''}, risking about ${fmtMoney(k.risk)}${k.overBudget ? `, which is over your ${fmtMoney(plan.riskPerTrade)} per-trade risk, so size down or skip` : ''}. Out if ${sig.sym} ${sig.dir > 0 ? 'loses' : 'gets back above'} ${fmtPrice(sig.stop)}; target ${fmtPrice(sig.target)}.${sig.against.length ? ' Watch: ' + sig.against.slice(0, 2).join(', ') + '.' : ''}${delayed}`;
+  const text = `${practice ? `Practice alert, replayed from the ${new Date(sig.barT + 300e3).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} candle. ` : ''}${sig.sym} ${side} setup, ${grade}, score ${sig.score}: ${sig.title}. Idea: the ${k.strike} ${side} ${k.expiry === nextExpiries().today ? 'for today' : 'for ' + new Date(k.expiry + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })}, about ${k.premium.toFixed(2)}, ${k.qty} contract${k.qty > 1 ? 's' : ''}, risking about ${fmtMoney(k.risk)}${k.overBudget ? `, which is over your ${fmtMoney(plan.riskPerTrade)} per-trade risk, so size down or skip` : ''}. Out if ${sig.sym} ${sig.dir > 0 ? 'loses' : 'gets back above'} ${fmtPrice(sig.stop)}; target ${fmtPrice(sig.target)}.${sig.against.length ? ' Watch: ' + sig.against.slice(0, 2).join(', ') + '.' : ''}${delayed}`;
   say(text, sig.dir > 0 ? 'good' : 'risk');
   flash('watch'); if (sig.sym === app.settings.main) flash('chart');
   app.markDirty('indai'); app.markDirty('summary');
   try { if (document.hidden && 'Notification' in window && Notification.permission === 'granted') new Notification(`INDAI · ${sig.sym} ${side} setup (${sig.score})`, { body: `${sig.title}. ${k.strike}${sig.type} ≈ $${k.premium.toFixed(2)} × ${k.qty}. Stop ${fmtPrice(sig.stop)}, target ${fmtPrice(sig.target)}.`, icon: './icons/icon-192.png', tag: 'indai-' + sig.sym }); } catch {}
 }
 app.fireSignal = fireSignal;
+
+// Replay the setup scanner over the current (or last) session's candles: how many alerts your plan would have fired.
+app.replayScan = () => {
+  const plan = app.activePlan();
+  const all = []; let syms = 0;
+  for (const sym of app.settings.symbols) {
+    const bars = app.feed.getBars(sym, '5min');
+    if (bars.length < 8) continue;
+    syms++;
+    const lv = app.levelsFor(sym), last = {};
+    for (let i = 8; i <= bars.length; i++) {
+      const sub = bars.slice(0, i), at = sub[i - 1].t + 300e3;
+      for (const c of scanSetups(sym, sub, { levels: lv, leadDir: 0, now: at, enabled: plan.strategies })) {
+        const k = c.strat + c.dir;
+        if (at - (last[k] || 0) < 20 * 60e3) continue;
+        last[k] = at; all.push({ ...c, at });
+      }
+    }
+  }
+  // same limits as live alerts: score bar and alerts-per-hour cap
+  const hits = [];
+  for (const c of all.filter(x => x.score >= plan.minScore).sort((a, b) => a.at - b.at)) {
+    if (hits.filter(h => c.at - h.at < 3600e3).length < plan.perHour) hits.push(c);
+  }
+  const best = [...hits].sort((a, b) => b.score - a.score)[0] || null;
+  const practice = best || [...all].sort((a, b) => b.score - a.score)[0] || null;
+  return { symbols: syms, count: hits.length, best, practice, label: marketStatus().state === 'open' ? "today's" : 'last', minScore: plan.minScore };
+};
+// Play one replayed setup as a clearly-labelled practice alert, so the whole alert flow can be tested any time.
+app.practiceAlert = (sig) => {
+  if (!sig) sig = app.replayScan().practice;
+  if (!sig) { say('There are no candles to replay yet. Give the data a minute to load, then try again.', 'info'); return; }
+  const plan = app.activePlan(), q = app.feed.quote(sig.sym);
+  const s = { ...sig, at: Date.now(), practice: true };
+  s.contract = suggestContract(s, plan, { iv: q?.iv30 ? q.iv30 / 100 : 0.22, r: app.settings.rate ?? 0.04, strikeStep: strikeStep(sig.sym, sig.price), nextExpiry: nextExpiries() });
+  fireSignal(s, plan, { practice: true });
+};
 
 // ------------------------------------------------------------------ three.js scene
 const canvasHost = document.getElementById('scene');

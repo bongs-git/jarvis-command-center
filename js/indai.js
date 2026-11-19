@@ -10,6 +10,7 @@ import { technicals, realizedVol, stripWake, parseIdea, looksLikeTradeIdea, scor
 import { fmtPrice, fmtMoney } from './hud.js';
 import { LEADLAG } from './feeds.js';
 import { STRATEGIES, PROFILES, buildPlan } from './signals.js';
+import { levelSourceLabel } from './panels.js';
 
 const ALIASES = {
   spy: 'SPY', spiders: 'SPY', 'the spy': 'SPY',
@@ -162,6 +163,8 @@ export class Indai {
     if (/\b(restore|bring (back|them back|the screens back)|expand( everything| all)?|show (all|every) ?(screens|windows))\b/.test(t)) { app.restoreAll(); return true; }
     if (/\b(consolidate|summari[sz]e (everything|all)|one window|everything at a glance|collapse)\b/.test(t) || /^ (summary|give me a summary|the summary) $/.test(t)) { app.consolidate(); return true; }
     if (/\btrading ?view\b/.test(t) && /\b(open|show|pull up|launch|go to)\b/.test(t)) { app.openTradingView(symIn(t)); return true; }
+    if (/\b(self ?test|test (yourself|everything|the system|all systems)|diagnostics?|system check|systems check|are you working|run a test)\b/.test(t)) { this.selfTest(); return true; }
+    if (/\b(practice|test|sample|demo) (alert|signal|setup)\b/.test(t)) { app.practiceAlert(); return true; }
     if (/\b(start (my|the) day|game ?plan|check ?in|new plan|change (the|my) plan|set (the|my|up the) plan|let s (get started|start|go))\b/.test(t)) { this.startDay({ voice: true }); return true; }
     if (/\b(temperature|temp check|how hot|market mood|how s the market|hows the market)\b/.test(t)) { this.tempCheck(); return true; }
     if (/\b(only|just|focus on|alert me on|watch for)\b/.test(t) && /\b(ema|cloud|clouds|vwap|gex|wall|walls|opening range|orb|breakout)\b/.test(t)) {
@@ -199,6 +202,62 @@ export class Indai {
     return false;
   }
 
+
+
+  // ---------------------------------------------------------------- self-test
+  // Checks every part of INDAI and plays a practice alert, so it can be tested at any hour.
+  async selfTest() {
+    const app = this.app, v = this.voice;
+    if (this._testing) return; this._testing = true;
+    const results = [];
+    const add = (name, status, detail) => { results.push({ name, status, detail }); app.onSelfTest?.(results, false); };
+    const timeET = (ms) => new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+    this.setThinking('Running self-test…');
+    this.say('Running a self-test. Give me a few seconds.', 'info');
+    app.onSelfTest?.(results, false);
+    v.unlock();
+    if (!this.muted && app.settings.voiceEngine !== 'system') v.preload({ tts: true });
+    try {
+      const st = app.feed.status, main = app.settings.main, q = app.feed.quote(main);
+      add('Market data', st.mode === 'demo' ? 'fail' : q ? 'pass' : 'warn', st.mode === 'demo' ? `demo prices only: ${st.note || "couldn't reach market data"}` : `${st.mode === 'live' ? 'Finnhub real-time + CBOE' : 'CBOE, about 15 minutes delayed'}${app.feed.bridgeLive ? ' + TradingView bridge' : ''} · ${main} ${q ? fmtPrice(q.last) : 'no quote yet'}`);
+      try {
+        const c = await relay.chain(main, '', 0.03);
+        if (c?.spot) app.noteChainGex(main, c);
+        add('Options chain', c?.spot ? 'pass' : 'fail', c?.spot ? `${main}: ${c.chain.length} contracts near ${fmtPrice(c.spot)}, nearest expiry ${c.expiry}` : (c?.error || 'no data'));
+      } catch (e) { add('Options chain', 'fail', e.message); }
+      const lv = app.levelsFor(main);
+      add('GEX levels', lv ? (lv.source === 'demo' ? 'warn' : 'pass') : 'fail', lv ? `${main} call wall ${lv.cw ?? '—'}, put wall ${lv.pw ?? '—'}, flip ${lv.zg ?? '—'} (${levelSourceLabel(lv).replace('Levels: ', '').toLowerCase()})` : 'none loaded yet');
+      const br = app.feed.status.tvAt;
+      add('TradingView bridge', app.feed.bridgeLive ? 'pass' : 'warn', app.feed.bridgeLive ? `live, last candle at ${timeET(br)}` : br ? `quiet since ${timeET(br)}` : 'no candles yet. It starts once your TradingView chart closes a candle (by 9:30 at the latest)');
+      const b = await relay.brainStatus(); this.brain = { ...b, checked: true };
+      add('Web research', b.configured ? 'pass' : 'warn', b.configured ? 'on' : 'off until the Anthropic key is added; trade ratings use market data only');
+      const vs = v.state;
+      add('Voice', vs.ttsReady || app.settings.voiceEngine === 'system' ? 'pass' : 'warn', vs.ttsReady ? 'natural voice ready' : app.settings.voiceEngine === 'system' ? 'using the browser voice' : vs.ttsLoad != null ? `natural voice downloading, ${vs.ttsLoad}% (first time only)` : 'natural voice downloading (first time only)');
+      let mic = 'unknown';
+      try { mic = (await navigator.permissions.query({ name: 'microphone' })).state; } catch {}
+      add('Microphone', !v.canListen ? 'fail' : mic === 'granted' ? 'pass' : mic === 'denied' ? 'fail' : 'warn', !v.canListen ? 'this browser has no microphone access' : mic === 'granted' ? 'allowed' : mic === 'denied' ? 'blocked: allow the microphone for this site in the browser settings' : 'not allowed yet: tap Talk once and choose Allow');
+      const quest = /OculusBrowser|Quest/i.test(navigator.userAgent);
+      const onDevice = !(v.SR && (app.settings.micEngine === 'browser' || (app.settings.micEngine !== 'whisper' && !quest)));
+      if (onDevice && !vs.sttReady) v.preload({ tts: false, stt: true });
+      add('Listening', !onDevice || vs.sttReady ? 'pass' : 'warn', !onDevice ? "using this browser's speech recognition" : vs.sttReady ? `on-device model ready (${vs.sttModel})` : vs.sttLoad != null ? `listening model downloading, ${vs.sttLoad}%` : 'listening model downloading (first time only)');
+      const p = app.day.plan;
+      add('Game plan', p ? 'pass' : 'warn', p ? `${fmtMoney(p.capital)} start, ${fmtMoney(p.goal)} goal, ${PROFILES[p.aggr].label.toLowerCase()}` : 'not set today: tap Start day or say "start my day"');
+      const rs = app.riskState();
+      add('Risk breaker', rs.state === 'armed' ? 'pass' : 'warn', rs.state === 'armed' ? `armed, ${fmtMoney(rs.room)} of room today` : rs.state === 'tripped' ? 'tripped for today' : 'on cooldown');
+      const rep = app.replayScan();
+      add('Setup alerts', rep.symbols ? 'pass' : 'warn', rep.symbols ? `${rep.count} setup${rep.count === 1 ? '' : 's'} scoring ${rep.minScore}+ in the ${rep.label} session across ${rep.symbols} tickers${rep.best ? `; best: ${rep.best.sym}, ${rep.best.title} (${rep.best.score})` : ''}` : 'no candles loaded yet');
+      app.onSelfTest?.(results, true);
+      for (const r of results) this.say(`${r.status === 'pass' ? '✓' : r.status === 'fail' ? '✗' : '•'} ${r.name}: ${r.detail}`, r.status === 'fail' ? 'risk' : r.status === 'pass' ? 'good' : 'info', { speak: false });
+      const fails = results.filter(r => r.status === 'fail'), waits = results.filter(r => r.status === 'warn');
+      this.say(`Self-test done. ${results.length - fails.length - waits.length} of ${results.length} checks passed.${fails.length ? ` Needs fixing: ${fails.map(f => f.name.toLowerCase()).join(', ')}.` : ''}${waits.length ? ` Still waiting on: ${waits.map(w => w.name.toLowerCase()).join(', ')}.` : ''}${rep.practice ? " Here's a practice alert so you can hear one." : ''}`, fails.length ? 'risk' : 'good');
+      if (rep.practice) setTimeout(() => app.practiceAlert(rep.practice), 900);
+    } catch (e) {
+      this.say('Self-test stopped early: ' + (e.message || e), 'risk', { speak: false });
+    } finally {
+      this.setThinking(null); this._testing = false;
+    }
+    return results;
+  }
 
   // ---------------------------------------------------------------- morning check-in / game plan
   maybeAutoListen(st) {

@@ -418,6 +418,7 @@ export class IndaiPanel extends Panel {
     const ind = this.app.indai, vs = ind.voice.state;
     const [st, col] = vs.listening ? ['Listening…', C.amber] : vs.transcribing ? ['Understanding…', C.violet] : ind.thinking ? [ind.thinking, C.line] : vs.speaking ? ['Speaking', C.up] : ['Ready', C.dim];
     pill(ctx, this.W - 30, 14, st, col, { size: 20, align: 'right' });
+    this.button('selftest', 150, 12, 150, 38, ind._testing ? 'Testing…' : 'Self-test', { size: 18, color: C.line, disabled: !!ind._testing, onClick: () => ind.selfTest() });
     let y = a.y;
     const loads = [];
     if (vs.ttsLoad != null) loads.push(`voice ${vs.ttsLoad}%`);
@@ -428,7 +429,7 @@ export class IndaiPanel extends Panel {
     if (showSig) {
       const sc = sig.dir > 0 ? C.up : C.down;
       rrect(ctx, a.x, y, a.w, 214, 22); ctx.fillStyle = hexA(sc, 0.10); ctx.fill(); ctx.strokeStyle = hexA(sc, 0.5); ctx.lineWidth = 2; ctx.stroke();
-      pill(ctx, a.x + 18, y + 16, `${sig.type === 'C' ? 'CALL' : 'PUT'} setup · ${sig.score}`, sc, { size: 22 });
+      pill(ctx, a.x + 18, y + 16, `${sig.practice ? 'Practice · ' : ''}${sig.type === 'C' ? 'CALL' : 'PUT'} setup · ${sig.score}`, sc, { size: 22 });
       text(ctx, new Date(sig.at).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }), a.x + a.w - 18, y + 42, { size: 19, weight: 500, color: C.dim, align: 'right' });
       text(ctx, `${sig.sym} · ${sig.title}`, a.x + 18, y + 92, { size: 24, weight: 600, color: C.white, max: a.w - 36 });
       const k = sig.contract;

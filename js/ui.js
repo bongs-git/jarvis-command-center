@@ -146,6 +146,25 @@ export function initUI(app) {
 
   $('btn-tv').addEventListener('click', () => app.openTradingView());
 
+  // ---- self-test results (2D)
+  const tm = $('test-modal');
+  const closeTest = () => { tm.classList.remove('open'); tm.setAttribute('aria-hidden', 'true'); };
+  app.onSelfTest = (results, done) => {
+    if (app.inXR) return;
+    tm.classList.add('open'); tm.setAttribute('aria-hidden', 'false');
+    const icon = { pass: '✓', warn: '•', fail: '✗' };
+    $('t-list').innerHTML = results.map(r => `<div class="tline"><div class="ic ${r.status}">${icon[r.status]}</div><div><b>${esc(r.name)}</b><span>${esc(r.detail)}</span></div></div>`).join('');
+    const fails = results.filter(r => r.status === 'fail').length, waits = results.filter(r => r.status === 'warn').length;
+    $('t-sub').textContent = done ? `${results.length - fails - waits} of ${results.length} passed${fails ? ` · ${fails} to fix` : ''}${waits ? ` · ${waits} waiting` : ''}. Amber items are normal before the open or on first launch.` : 'Checking every part of INDAI…';
+  };
+  $('btn-test').addEventListener('click', () => { app.indai.voice.unlock(); app.indai.selfTest(); });
+  $('s-selftest').addEventListener('click', () => { close(); app.indai.voice.unlock(); app.indai.selfTest(); });
+  $('t-close').addEventListener('click', closeTest);
+  tm.addEventListener('click', (e) => { if (e.target === tm) closeTest(); });
+  $('t-again').addEventListener('click', () => app.indai.selfTest());
+  $('t-practice').addEventListener('click', () => { app.indai.voice.unlock(); app.practiceAlert(); });
+  $('t-plan').addEventListener('click', () => { closeTest(); app.indai.startDay({ voice: false }); });
+
   // ---- options profit calculator (2D)
   initCalc(app, toast);
 
@@ -157,6 +176,7 @@ export function initUI(app) {
   const qp = new URLSearchParams(location.search);
   if (qp.get('settings') === '1') app.openSettings();
   if (qp.get('calc') === '1') app.openCalc();
+  if (qp.get('selftest') === '1') setTimeout(() => app.indai.selfTest(), 5000);
 }
 
 // ---------------------------------------------------------------- calculator modal

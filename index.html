@@ -73,6 +73,14 @@
   .status .ok { color:var(--up); } .status .warn { color:var(--amber); } .status .bad { color:var(--down); }
   .closex { position:absolute; right:16px; top:max(16px, env(safe-area-inset-top)); }
 
+  #test-modal { position:fixed; inset:0; z-index:13; display:none; align-items:flex-start; justify-content:center; background:rgba(3,5,10,.72); backdrop-filter:blur(6px); overflow-y:auto; padding:max(60px, env(safe-area-inset-top)) 12px 30px; }
+  #test-modal.open { display:flex; }
+  #test-modal .card { width:min(640px, 100%); }
+  .tline { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); font-size:14.5px; line-height:1.4; }
+  .tline:last-child { border-bottom:0; }
+  .tline .ic { flex:0 0 24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; }
+  .tline .ic.pass { background:rgba(52,211,153,.18); color:var(--up); } .tline .ic.warn { background:rgba(251,191,36,.18); color:var(--amber); } .tline .ic.fail { background:rgba(248,113,113,.2); color:var(--down); }
+  .tline b { font-weight:600; display:block; } .tline span { color:var(--dim); }
   #calc-modal { position:fixed; inset:0; z-index:12; display:none; align-items:flex-start; justify-content:center; background:rgba(3,5,10,.72); backdrop-filter:blur(6px); overflow-y:auto; padding:max(16px, env(safe-area-inset-top)) 12px 30px; }
   #calc-modal.open { display:flex; }
   .card { width:min(1100px, 100%); background:rgba(11,16,26,.98); border:1px solid var(--border); border-radius:22px; padding:20px; position:relative; }
@@ -108,6 +116,7 @@
   <div class="brand"><span class="dot"></span><b>INDAI</b><span>Command Center</span></div>
   <button id="btn-ar" class="primary" hidden>Enter mixed reality</button>
   <button id="btn-vr" hidden>Enter VR</button>
+  <button id="btn-test">Self-test</button>
   <button id="btn-calc">Calculator</button>
   <button id="btn-tv" class="ghost">Open in TradingView</button>
   <button id="btn-install" hidden>Install app</button>
@@ -188,11 +197,22 @@
 
     <div class="actions">
       <button type="submit" class="primary">Save</button>
+      <button type="button" id="s-selftest" class="small">Run self-test</button>
       <button type="button" id="s-reset-layout" class="small">Reset layout</button>
       <button type="button" id="s-reset-day" class="small">Reset today's P&amp;L</button>
     </div>
   </form>
 </aside>
+
+<div id="test-modal" aria-hidden="true">
+  <div class="card">
+    <button type="button" id="t-close" class="closex small">Close</button>
+    <h2>INDAI self-test</h2>
+    <p class="note" id="t-sub">Checking every part of INDAI…</p>
+    <div id="t-list"></div>
+    <div class="row" style="margin-top:14px; flex-wrap:wrap"><button type="button" id="t-again" class="small">Run again</button><button type="button" id="t-practice" class="small">Play a practice alert</button><button type="button" id="t-plan" class="small">Start day</button></div>
+  </div>
+</div>
 
 <div id="calc-modal" aria-hidden="true">
   <div class="card">
