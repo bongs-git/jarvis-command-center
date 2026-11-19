@@ -65,6 +65,7 @@ export class VoiceIO {
       this.setState(m.kind === 'tts' ? { ttsLoad: pct } : { sttLoad: pct });
     } else if (m.type === 'ready') {
       this.setState(m.kind === 'tts' ? { ttsReady: true, ttsLoad: null } : { sttReady: true, sttLoad: null, sttModel: m.model });
+      if (m.kind === 'tts' && this.backlog?.length) { const keep = this.backlog.filter(b => Date.now() - b.at < 45e3); this.backlog = []; for (const b of keep) this.speak(b.text); }
     } else if (m.type === 'audio') {
       if (m.epoch !== this.epoch) return;
       this.audioQueue.push({ seq: m.id, samples: m.samples, rate: m.rate });
@@ -77,6 +78,7 @@ export class VoiceIO {
         if (!this.state.ttsReady) { this.ttsFailedAt = Date.now(); this.speakSystem(m.text); }
         if (m.epoch === this.epoch) { this.expectSeq = Math.max(this.expectSeq, (m.id || 0) + 1); this.pump(); }
       }
+      if (m.kind === 'tts') this._ttsAsked = false; else this._sttAsked = false;
       this.setState({ error: `${m.kind === 'tts' ? 'Voice' : 'Speech recognition'}: ${m.message}`, ...(m.kind === 'tts' ? { ttsLoad: null } : { sttLoad: null }) });
       this.onLog(`${m.kind === 'tts' ? 'Voice' : 'Speech recognition'} problem: ${m.message}`);
     } else if (m.type === 'log') this.onLog(m.message);
@@ -93,6 +95,11 @@ export class VoiceIO {
   }
   preload({ tts = true, stt = false } = {}) {
     const s = this.getSettings();
+    if (tts && (this.state.ttsReady || this._ttsAsked)) tts = false;
+    if (stt && (this.state.sttReady || this._sttAsked)) stt = false;
+    if (!tts && !stt) return;
+    if (tts) this._ttsAsked = true;
+    if (stt) this._sttAsked = true;
     if (s.voiceEngine === 'system' && !stt) return;
     this.ensureWorker().postMessage({ type: 'preload', tts: tts && s.voiceEngine !== 'system', stt, device: this.webgpu ? 'webgpu' : 'wasm' });
   }
@@ -105,6 +112,14 @@ export class VoiceIO {
     // Browser voice when chosen, or for a few minutes after the natural voice failed to load (it retries later).
     const neuralDown = this.ttsFailedAt && Date.now() - this.ttsFailedAt < 5 * 60e3;
     if ((s.voiceEngine === 'system' || neuralDown) && this.speakSystem(said)) return;
+    if (!this.state.ttsReady) {
+      // The natural voice is still downloading (first run only). Use the browser's voice meanwhile if it has one;
+      // otherwise hold the latest two messages and say them as soon as the voice is ready.
+      this.preload({ tts: true });
+      if (this.hasSystemVoice() && this.speakSystem(said)) return;
+      this.backlog = [...(this.backlog || []), { text, at: Date.now() }].slice(-2);
+      return;
+    }
     this.audioCtx();
     const w = this.ensureWorker();
     for (const sentence of splitSentences(said)) {
@@ -113,6 +128,7 @@ export class VoiceIO {
     }
     this.setState({ speaking: true });
   }
+  hasSystemVoice() { try { return 'speechSynthesis' in window && speechSynthesis.getVoices().length > 0; } catch { return false; } }
   speakSystem(said) {
     if (!said || !('speechSynthesis' in window)) return false;
     try {

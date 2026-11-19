@@ -1122,6 +1122,12 @@ async function boot() {
   app.feed.start();
   loadMorningGex();
   setInterval(loadMorningGex, 10 * 60e3);
+  // Start downloading INDAI's voice (and, on Quest, her listening model) right away so they're ready when needed.
+  setTimeout(() => {
+    const v = app.indai.voice, quest = /OculusBrowser|Quest/i.test(navigator.userAgent);
+    if (!app.indai.muted && app.settings.voiceEngine !== 'system') v.preload({ tts: true });
+    if (quest || app.settings.micEngine === 'whisper') v.preload({ tts: false, stt: true });
+  }, 1500);
   app.markDirty('all');
   renderer.setAnimationLoop(loop);
   const st = app.feed.status;
