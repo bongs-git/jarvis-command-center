@@ -1,5 +1,5 @@
 // Market data: demo simulator, Finnhub (real-time trades + quotes), Twelve Data (intraday candles).
-import { INTERVAL_MS, aggregate, chartSession, etParts, etToMs, marketStatus } from './market.js';
+import { INTERVAL_MS, aggregate, chartSession, etParts, etToMs, marketStatus, isTradingDay, sessionTimes } from './market.js';
 import { relay } from './relay.js';
 
 const IVS = ['1min', '5min', '15min'];
@@ -121,7 +121,12 @@ export class MarketFeed {
       if (q.open) s.dayOpen = q.open; if (q.high) s.high = q.high; if (q.low) s.low = q.low;
       const liveTick = (s.lastTradeAt && Date.now() - s.lastTradeAt < 30e3 && this.status.finnhubWs === 'live') || (s.tvAt && Date.now() - s.tvAt < 150e3);
       if (st === 'open') { if (!liveTick) { s.last = q.price; s.lastTradeAt = Date.now(); } s.ext = null; }
-      else { s.last = q.close > 0 ? q.close : q.price; s.ext = q.price > 0 && q.close > 0 && Math.abs(q.price - q.close) > 0.005 ? q.price : null; s.lastTradeAt = Date.now(); }
+      else {
+        s.last = q.close > 0 ? q.close : q.price;
+        const bridgeFresh = s.tvAt && Date.now() - s.tvAt < 150e3;   // TradingView bridge has a fresher extended-hours price
+        if (!bridgeFresh) s.ext = q.price > 0 && q.close > 0 && Math.abs(q.price - q.close) > 0.005 ? q.price : null;
+        s.lastTradeAt = Date.now();
+      }
       this.bump(s);
     }
     this.lastSnap = Date.now();
@@ -160,10 +165,18 @@ export class MarketFeed {
     const i = arr.findIndex(x => x.t === bar.t);
     if (i >= 0) arr[i] = bar; else { arr.push(bar); if (arr.length > 1 && arr[arr.length - 2].t > bar.t) arr.sort((p, q) => p.t - q.t); }
     const newest = arr[arr.length - 1];
+    // A candle more than ~6 minutes old is a repeat or a late one (e.g. a delayed chart): keep it for history,
+    // but don't treat the bridge as live or move the price with it.
+    const fresh = Date.now() - (bar.t + (iv === '1min' ? 60e3 : iv === '5min' ? 300e3 : 900e3)) < 6 * 60e3;
+    if (!fresh) { this.bump(s); return; }
     if (newest === bar) {
-      s.last = bar.c; s.lastTradeAt = Date.now(); s.tvAt = Date.now(); s.ext = null;
-      const sess = chartSession();
-      if (bar.t >= sess.open && bar.t < sess.close) { s.high = s.high == null ? bar.h : Math.max(s.high, bar.h); s.low = s.low == null ? bar.l : Math.min(s.low, bar.l); }
+      const p = etParts(bar.t), st = sessionTimes(p.y, p.m, p.d);
+      const regular = isTradingDay(p.y, p.m, p.d) && bar.t >= st.open && bar.t < st.close;
+      if (regular) {
+        s.last = bar.c; s.ext = null;
+        s.high = s.high == null ? bar.h : Math.max(s.high, bar.h); s.low = s.low == null ? bar.l : Math.min(s.low, bar.l);
+      } else s.ext = bar.c;   // pre-market / after hours: shown as the extended-hours price
+      s.lastTradeAt = Date.now(); s.tvAt = Date.now();
     }
     this.status.tvBridge = 'live'; this.status.tvAt = Date.now();
     this.bump(s);
