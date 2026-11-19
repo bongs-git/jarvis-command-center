@@ -4,7 +4,9 @@
 // are kept in the indai_memory table and read back into every conversation, on every device.
 // Secrets (set in the Supabase dashboard): ANTHROPIC_API_KEY (required for thinking; memory works without it),
 // INDAI_PASSCODE (optional).
-import { failure, objectBody } from "../_shared/http.ts";
+import { account, uuid } from "../_shared/db.ts";
+import { clearHistory, recentTurns, saveTurns, sessionName } from "./history.ts";
+import { failure, HttpError, objectBody } from "../_shared/http.ts";
 import { profile } from "./profile.ts";
 import { streamTalk } from "./stream.ts";
 
@@ -112,9 +114,20 @@ Deno.serve(async (req) => {
   if (req.method === "GET") return json({ configured: !!key, passcode: !!pass, memory: !!SB_KEY });
   if (pass && req.headers.get("x-indai-pass") !== pass) return json({ error: "passcode", message: "Wrong or missing INDAI passcode." }, 401);
   if (req.method !== "POST") return json({error:"method",message:"Use GET or POST."},405);
-  let body: any;
+  let body: any, session = "default", talkUser: string | null = null;
   try {
     body = await objectBody(req);
+    if (body.mode === "talk" || body.mode === "history") session = sessionName(body.session);
+    if (body.mode === "history") {
+      const user = await account(req);
+      if (body.op === "clear") { await clearHistory(user, session); return json({turns:[]}); }
+      if (body.op === "list") return json({turns:await recentTurns(user, session)});
+      throw new HttpError(400,"bad_request","Choose list or clear.");
+    }
+    if (body.mode === "talk") {
+      if (body.request_id != null && !uuid.test(body.request_id)) throw new HttpError(400,"bad_request","request_id must be a UUID.");
+      if (pass) talkUser = await account(req);
+    }
     if (body.mode === "profile") return await profile(req, body);
   } catch (e) { return failure(e); }
   // Memory works whether or not the thinking key is set, so teaching INDAI never fails.
@@ -130,7 +143,11 @@ Deno.serve(async (req) => {
     const name = String(body?.name ?? "there").slice(0, 30);
     const now = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" }).format(new Date());
     const memory = await memList();
-    const history = (Array.isArray(body?.history) ? body.history : []).slice(-16)
+    let prior = Array.isArray(body.history) ? body.history : [];
+    if (!prior.length && talkUser) {
+      try { prior = await recentTurns(talkUser,session); } catch (e) { return failure(e); }
+    }
+    const history = prior.slice(-16)
       .map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: clean(h.text) })).filter((h: any) => h.content);
     // the API wants alternating turns that start with the user
     const turns: any[] = [];
@@ -143,6 +160,7 @@ Deno.serve(async (req) => {
       const finish = async (parsed: any, sources: any[], usage: any) => {
         let remembered: any[] = [];
         try { if (Array.isArray(parsed.remember) && parsed.remember.length) remembered = await memAdd(parsed.remember, "learned"); if (Array.isArray(parsed.forget) && parsed.forget.length) await memForget(parsed.forget); } catch { /* memory is best effort */ }
+        if (talkUser) await saveTurns(talkUser,session,clean(body.question),String(parsed.spoken),body.request_id ?? null);
         return { mode: "talk", model: MODELS.talk, result: parsed, remembered, sources, usage };
       };
       if (body.stream === true) return await streamTalk({key, model: MODELS.talk, system, userText, history: turns, search: body.search !== false, signal: req.signal, headers: CORS, finish});

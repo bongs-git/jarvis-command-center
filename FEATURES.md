@@ -5,6 +5,7 @@ One line per user-visible feature, newest first. The Quest app and the standalon
 
 | Date | Feature | Where | web |
 |---|---|---|---|
+| 2026-11-19 | The last 16 turns follow a conversation between devices for six hours. | Backend BE-4 (pending deployment) | todo |
 | 2026-11-19 | Speech fixes, listening settings, watchlists and day plans sync across devices. | Backend BE-3 (pending deployment) | todo |
 | 2026-11-19 | Talk can stream the spoken reply as it is generated. | Backend BE-2 (pending deployment) | todo |
 | 2026-11-19 | Talk can explicitly skip web search for a latency-sensitive reply. | Backend BE-1 (pending deployment) | todo |
