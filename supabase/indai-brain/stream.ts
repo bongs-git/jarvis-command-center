@@ -52,6 +52,11 @@ export async function streamTalk(opts: TalkOptions) {
       let message: Anthropic.Message;
       try {
         for await (const event of stream) {
+          // Flush the transport after the upstream accepts the request. SSE comments never become speech.
+          if (event.type === "message_start" && step === 0) {
+            yield encoder.encode(": connected " + " ".repeat(2048) + "\n\n");
+            continue;
+          }
           if (event.type !== "content_block_delta" || event.delta.type !== "text_delta") continue;
           raw += event.delta.text;
           const prefix = spokenPrefix(raw);
@@ -132,6 +137,7 @@ export async function streamTalk(opts: TalkOptions) {
       ...opts.headers,
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-store, no-transform",
+      "Content-Encoding": "identity",
       "X-Accel-Buffering": "no",
     },
   });
