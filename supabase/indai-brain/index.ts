@@ -4,7 +4,8 @@
 // are kept in the indai_memory table and read back into every conversation, on every device.
 // Secrets (set in the Supabase dashboard): ANTHROPIC_API_KEY (required for thinking; memory works without it),
 // INDAI_PASSCODE (optional).
-import { account, uuid } from "../_shared/db.ts";
+import { clean, ids, memAdd, memForget, memList } from "./memory.ts";
+import { account, rpc, uuid } from "../_shared/db.ts";
 import { clearHistory, recentTurns, saveTurns, sessionName } from "./history.ts";
 import { failure, HttpError, objectBody } from "../_shared/http.ts";
 import { profile } from "./profile.ts";
@@ -49,28 +50,9 @@ How you work:
 - You are not a financial adviser. You give your honest read and the reasons; the trader decides. If the risk breaker is tripped, be kind and firm about it.
 - Use web search only when the question needs something current that the context does not have (news, events, facts). Otherwise answer straight away.
 
+Include used_ids for supplied memories that actually informed this reply, and remember_kinds (fact, preference, rule, vocabulary) aligned with remember.
 Reply with ONLY one JSON object, no markdown:
 {"spoken":"what you say out loud: 1-3 natural sentences, no lists or symbols","summary":["optional: up to 4 short lines of detail for the screen"],"command":"optional: one command to run, in plain words","heard_as":"optional: if the speech recognizer clearly garbled their words, what they actually said","remember":["optional: new things to keep in long-term memory"],"forget":["optional: memory ids to delete, only when the trader asks you to forget something"]}`;
-
-// ---- long-term memory (service role; the table is not readable with the public key)
-const SB_URL = Deno.env.get("SUPABASE_URL") ?? "", SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-async function mem(path: string, init: RequestInit = {}) {
-  const r = await fetch(`${SB_URL}/rest/v1/indai_memory${path}`, { ...init, headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers ?? {}) } });
-  if (!r.ok) throw new Error(`memory ${r.status}`);
-  return r.status === 204 ? [] : await r.json();
-}
-const clean = (t: unknown) => String(t ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
-async function memList() { try { return await mem("?select=id,kind,text,created_at&order=created_at.asc&limit=200"); } catch { return []; } }
-async function memAdd(texts: unknown[], kind = "note") {
-  const have = (await memList()).map((m: any) => m.text.toLowerCase());
-  const rows = texts.map(clean).filter((t) => t.length > 3 && !have.includes(t.toLowerCase())).slice(0, 6).map((text) => ({ text, kind }));
-  return rows.length ? await mem("", { method: "POST", body: JSON.stringify(rows) }) : [];
-}
-async function memForget(ids: unknown[]) {
-  const ok = ids.map((x) => parseInt(String(x), 10)).filter((n) => Number.isFinite(n)).slice(0, 20);
-  if (ok.length) await mem(`?id=in.(${ok.join(",")})`, { method: "DELETE" });
-  return ok;
-}
 
 async function callClaude(key: string, model: string, system: string, userText: string, opts: { history?: any[]; maxTokens?: number; searches?: number } = {}) {
   const messages: any[] = [...(opts.history ?? []), { role: "user", content: userText }];
@@ -111,7 +93,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const key = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
   const pass = Deno.env.get("INDAI_PASSCODE") ?? "";
-  if (req.method === "GET") return json({ configured: !!key, passcode: !!pass, memory: !!SB_KEY });
+  if (req.method === "GET") return json({ configured: !!key, passcode: !!pass, memory: !!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") });
   if (pass && req.headers.get("x-indai-pass") !== pass) return json({ error: "passcode", message: "Wrong or missing INDAI passcode." }, 401);
   if (req.method !== "POST") return json({error:"method",message:"Use GET or POST."},405);
   let body: any, session = "default", talkUser: string | null = null;
@@ -133,16 +115,18 @@ Deno.serve(async (req) => {
   // Memory works whether or not the thinking key is set, so teaching INDAI never fails.
   if (body?.mode === "memory") {
     try {
-      if (body.op === "add") return json({ added: await memAdd([body.text], clean(body.kind) || "note"), memory: await memList() });
-      if (body.op === "forget") { await memForget(body.ids ?? []); return json({ memory: await memList() }); }
-      return json({ memory: await memList() });
-    } catch (e) { return json({ error: "memory", message: String((e as Error).message ?? e) }, 502); }
+      const user = await account(req);
+      if (body.op === "add") return json({ added: await memAdd(user,[body.text],[body.kind]), memory: await memList(user) });
+      if (body.op === "forget") { await memForget(user,body.ids ?? []); return json({ memory: await memList(user) }); }
+      return json({ memory: await memList(user) });
+    } catch(e) { return failure(e); }
   }
   if (!key) return json({ error: "not_configured", message: "INDAI's research needs an Anthropic API key saved as the ANTHROPIC_API_KEY secret." }, 503);
   if (body?.mode === "talk") {
     const name = String(body?.name ?? "there").slice(0, 30);
     const now = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" }).format(new Date());
-    const memory = await memList();
+    let memory: any[] = [];
+    try { if (talkUser) memory = await memList(talkUser,40); } catch(e) { return failure(e); }
     let prior = Array.isArray(body.history) ? body.history : [];
     if (!prior.length && talkUser) {
       try { prior = await recentTurns(talkUser,session); } catch (e) { return failure(e); }
@@ -154,12 +138,18 @@ Deno.serve(async (req) => {
     for (const h of history) { if (turns.length && turns[turns.length - 1].role === h.role) turns[turns.length - 1].content += " " + h.content; else turns.push(h); }
     while (turns.length && turns[0].role !== "user") turns.shift();
     while (turns.length && turns[turns.length - 1].role !== "assistant") turns.pop();
-    const system = `${TALK_SYSTEM}\n\nTrader: ${name}. Now: ${now} (New York).\nmemory = ${JSON.stringify(memory.map((m: any) => ({ id: m.id, text: m.text })))}\nspeech_habits = ${JSON.stringify(body?.speech ?? {}).slice(0, 1500)}`;
+    const system = `${TALK_SYSTEM}\n\nTrader: ${name}. Now: ${now} (New York).\nmemory = ${JSON.stringify(memory.map((m: any) => ({ id: m.id, kind: m.kind, text: m.text })))}\nspeech_habits = ${JSON.stringify(body?.speech ?? {}).slice(0, 1500)}`;
     const userText = `They said (as heard): "${clean(body?.question).slice(0, 600)}"\ncontext = ${JSON.stringify(body?.context ?? {}).slice(0, 12000)}`;
     try {
       const finish = async (parsed: any, sources: any[], usage: any) => {
         let remembered: any[] = [];
-        try { if (Array.isArray(parsed.remember) && parsed.remember.length) remembered = await memAdd(parsed.remember, "learned"); if (Array.isArray(parsed.forget) && parsed.forget.length) await memForget(parsed.forget); } catch { /* memory is best effort */ }
+        if (talkUser) {
+          if (Array.isArray(parsed.remember) && parsed.remember.length) remembered = await memAdd(talkUser,parsed.remember,Array.isArray(parsed.remember_kinds) ? parsed.remember_kinds : []);
+          const known = new Set(memory.map(m=>Number(m.id)));
+          const used = ids(parsed.used_ids).filter(id=>known.has(id));
+          if (used.length) await rpc("indai_use_memories",{p_user:talkUser,p_ids:used});
+          await memForget(talkUser,ids(parsed.forget).filter(id=>known.has(id)));
+        }
         if (talkUser) await saveTurns(talkUser,session,clean(body.question),String(parsed.spoken),body.request_id ?? null);
         return { mode: "talk", model: MODELS.talk, result: parsed, remembered, sources, usage };
       };
