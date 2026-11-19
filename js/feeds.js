@@ -136,7 +136,9 @@ export class MarketFeed {
         const bars = d.bars.map(b => ({ t: base + (b[0] - 1) * 60e3, o: b[1], h: b[2], l: b[3], c: b[4], v: b[5], cv: b[6], pv: b[7] }));
         const s = this.sym(sym);
         const lastT = bars[bars.length - 1].t;
+        s.cboeVol = new Map(bars.map(b => [b.t, b.v]));
         const live = s.bars['1min'].filter(b => b.t > lastT);
+        if (s.tvRaw) { const k = this.bridgeVolScale(s); for (const b of live) if (s.tvRaw.has(b.t)) b.v = Math.round(s.tvRaw.get(b.t) * k); }
         s.bars['1min'] = [...bars, ...live];
         s.bars['5min'] = []; s.bars['15min'] = [];
         s.cboeBars = true;
@@ -151,7 +153,10 @@ export class MarketFeed {
     const s = this.sym(sym);
     const iv = tf === '5' ? '5min' : tf === '15' ? '15min' : '1min';
     const arr = s.bars[iv];
-    const bar = { t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v || 0 };
+    // TradingView's free Cboe (BATS) feed only carries Cboe's share of volume, so scale it to market-wide volume
+    // using minutes where both it and the consolidated CBOE candles exist.
+    (s.tvRaw ??= new Map()).set(b.t, b.v || 0);
+    const bar = { t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: Math.round((b.v || 0) * this.bridgeVolScale(s)) };
     const i = arr.findIndex(x => x.t === bar.t);
     if (i >= 0) arr[i] = bar; else { arr.push(bar); if (arr.length > 1 && arr[arr.length - 2].t > bar.t) arr.sort((p, q) => p.t - q.t); }
     const newest = arr[arr.length - 1];
@@ -162,6 +167,17 @@ export class MarketFeed {
     }
     this.status.tvBridge = 'live'; this.status.tvAt = Date.now();
     this.bump(s);
+  }
+  bridgeVolScale(s) {
+    const cv = s.cboeVol, raw = s.tvRaw;
+    if (!raw || !raw.size) return 1;
+    const med = (a) => { a = a.filter(x => x > 0).sort((p, q) => p - q); return a.length ? a[Math.floor(a.length / 2)] : 0; };
+    const ratios = [];
+    if (cv) for (const [t, v] of raw) { const c = cv.get(t); if (c > 0 && v > 0) ratios.push(c / v); }
+    let k = ratios.length >= 3 ? med(ratios) : 0;
+    if (!k && cv && cv.size >= 5 && raw.size >= 5) { const a = med([...cv.values()].slice(-20)), b = med([...raw.values()].slice(-20)); if (a && b) k = a / b; }
+    if (!k) k = 12; // Cboe BZX trades roughly 6-10% of US volume
+    return Math.max(1, Math.min(60, k));
   }
   get bridgeLive() { return this.status.tvAt && Date.now() - this.status.tvAt < 180e3; }
 

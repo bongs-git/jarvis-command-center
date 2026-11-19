@@ -6,21 +6,23 @@
 //   1. TradingView: turn on two-factor authentication (Profile > Settings > Security). Webhooks need it.
 //   2. Pine Editor > paste this script > Save > Add to chart. Use a 1-minute chart of any ticker.
 //   3. Pick your tickers in the indicator's settings (defaults: SPY, QQQ, IWM, TSLA, AMZN, MSFT).
-//   4. Create an alert: Condition = "INDAI Bridge", "Any alert() function call".
+//      Keep the BATS: prefix. BATS (Cboe) data is real-time on every TradingView account; NASDAQ:/AMEX:
+//      symbols need paid exchange data, and TradingView blocks alerts on them without it.
+//   4. Create an alert: Condition = "INDAI Bridge", then change "Crossing" to "Any alert() function call".
 //      Notifications > Webhook URL = the INDAI link you were given. Leave the message box as it is.
 //   One alert covers every ticker. Alerts on the Essential plan expire after 2 months; just re-create it.
 indicator("INDAI Bridge", shorttitle = "INDAI", overlay = true)
 
-t1 = input.symbol("AMEX:SPY", "Ticker 1")
-t2 = input.symbol("NASDAQ:QQQ", "Ticker 2")
-t3 = input.symbol("AMEX:IWM", "Ticker 3")
-t4 = input.symbol("NASDAQ:TSLA", "Ticker 4")
-t5 = input.symbol("NASDAQ:AMZN", "Ticker 5")
-t6 = input.symbol("NASDAQ:MSFT", "Ticker 6")
+t1 = input.symbol("BATS:SPY", "Ticker 1")
+t2 = input.symbol("BATS:QQQ", "Ticker 2")
+t3 = input.symbol("BATS:IWM", "Ticker 3")
+t4 = input.symbol("BATS:TSLA", "Ticker 4")
+t5 = input.symbol("BATS:AMZN", "Ticker 5")
+t6 = input.symbol("BATS:MSFT", "Ticker 6")
 use7 = input.bool(false, "Also send ticker 7", inline = "7")
-t7 = input.symbol("NASDAQ:NVDA", "", inline = "7")
+t7 = input.symbol("BATS:NVDA", "", inline = "7")
 use8 = input.bool(false, "Also send ticker 8", inline = "8")
-t8 = input.symbol("NASDAQ:AAPL", "", inline = "8")
+t8 = input.symbol("BATS:AAPL", "", inline = "8")
 showStatus = input.bool(true, "Show status box")
 
 num(x) => str.tostring(x, "#.####")
