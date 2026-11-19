@@ -1,5 +1,5 @@
 // Optional Massive adapter. Use the vendor's timeframe fields to verify the entitlement.
-import { account } from "../_shared/auth.ts";
+import { account, publicBearer } from "../_shared/auth.ts";
 import { db } from "../_shared/db.ts";
 
 const origin = "https://api.massive.com";
@@ -25,8 +25,7 @@ export async function licensedKey(req: Request) {
   const bearer = req.headers.get("authorization")?.replace(/^Bearer /i, "");
   if (
     !req.headers.has("x-indai-pass") &&
-    (!bearer || bearer === Deno.env.get("SUPABASE_ANON_KEY") ||
-      bearer === Deno.env.get("INDAI_PUBLISHABLE_KEY"))
+    (!bearer || publicBearer(bearer))
   ) return null;
   const user = await account(req);
   const [owner] = await db("indai_owner", { select: "user_id", limit: "1" });

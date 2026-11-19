@@ -5,7 +5,7 @@ verify_jwt = false
 entrypoint = "./indai-brain/index.ts"
 
 [functions.indai-market]
-verify_jwt = false
+verify_jwt = true
 entrypoint = "./indai-market/index.ts"
 
 [functions.indai-tv]

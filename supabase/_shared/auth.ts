@@ -7,6 +7,11 @@ export function sameSecret(expected: string, supplied: string) {
   const hash = (s: string) => createHash("sha256").update(s).digest();
   return expected.length > 0 && timingSafeEqual(hash(expected), hash(supplied));
 }
+// Public legacy token shipped with the headset. Hosted runtime keys can have a different issued-at claim.
+export function publicBearer(token: string) {
+  return token === Deno.env.get("SUPABASE_ANON_KEY") || token === Deno.env.get("INDAI_PUBLISHABLE_KEY") ||
+    createHash("sha256").update(token).digest("hex") === "6a6b324814cf4774c09ccc5903126703a2480298c3a422a4c9cbaf3dff11245e";
+}
 export function account(req: Request): Promise<string>;
 export function account(req: Request, allowGuest: true): Promise<string | null>;
 export async function account(req: Request, allowGuest = false) {
@@ -14,7 +19,7 @@ export async function account(req: Request, allowGuest = false) {
   const bearer = header?.match(/^Bearer (\S+)$/i)?.[1];
   if (header && !bearer) throw new HttpError(401, "unauthorized", "Invalid authorization header.");
   const anon = Deno.env.get("SUPABASE_ANON_KEY");
-  if (bearer && bearer !== anon && bearer !== Deno.env.get("INDAI_PUBLISHABLE_KEY")) {
+  if (bearer && !publicBearer(bearer)) {
     const r = await fetch(new URL("/auth/v1/user", Deno.env.get("SUPABASE_URL")), {
       headers: { apikey: anon ?? "", Authorization: "Bearer " + bearer },
       signal: AbortSignal.timeout(6000),
