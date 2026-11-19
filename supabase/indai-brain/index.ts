@@ -126,7 +126,12 @@ serve("indai-brain",async (req) => {
     } catch(e) { return failure(e); }
   }
   if (!key) return json({ error: "not_configured", message: "INDAI's research needs an Anthropic API key saved as the ANTHROPIC_API_KEY secret." }, 503);
-  try { talkUser = await account(req,true); await rateLimit(talkUser); } catch(e) { return failure(e); }
+  const streaming = body?.mode === "talk" && body.stream === true;
+  try {
+    talkUser = await account(req,true);
+    // Stateless streams combine their rate check with their first token reservation.
+    if (talkUser || !streaming) await rateLimit(talkUser);
+  } catch(e) { return failure(e); }
   if (body?.mode === "talk") {
     const name = String(body?.name ?? "there").slice(0, 30);
     const now = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" }).format(new Date());
@@ -161,7 +166,7 @@ serve("indai-brain",async (req) => {
         if (talkUser) await saveTurns(talkUser,session,clean(body.question),String(parsed.spoken),body.request_id ?? null);
         return { mode: "talk", model: MODELS.talk, result: parsed, remembered, sources, usage };
       };
-      if (body.stream === true) return await streamTalk({key, model: MODELS.talk, system, userText, history: turns, search: body.search !== false, signal: req.signal, headers: CORS, finish});
+      if (body.stream === true) return await streamTalk({key, model: MODELS.talk, system, userText, history: turns, search: body.search !== false, admitGuest: talkUser === null, signal: req.signal, headers: CORS, finish});
       const { finalText, sources, usage } = await callClaude(key, MODELS.talk, system, userText, { history: turns, maxTokens: 700, searches: body.search === false ? 0 : 2 });
       const parsed = extractJson(finalText) ?? { spoken: finalText.replace(/[{}"]/g, "").slice(0, 400) };
       return json(await finish(parsed, sources, usage));

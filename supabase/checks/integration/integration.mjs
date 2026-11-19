@@ -476,6 +476,11 @@ try {
         Array.from({ length: 9 }, () => sql("select indai_take_request($1,'test',4) allowed", [id])),
       );
       assert.equal(r.filter((x) => x[0].allowed).length, 4);
+      const [guest] = await sql("select indai_admit_guest_stream(1,0) as admission");
+      assert.equal(guest.admission.error, "budget");
+      const [permitted] = await sql("select indai_admit_guest_stream(1,10000000) as admission");
+      assert.ok(permitted.admission.id);
+      await sql("select indai_settle_tokens($1,0)", [permitted.admission.id]);
       const [{ balance }] = await sql("select (reserved+spent)::int balance from indai_token_days");
       const tokens = await Promise.all(
         Array.from({ length: 4 }, () => sql("select indai_reserve_tokens(60,$1) id", [balance + 120])),

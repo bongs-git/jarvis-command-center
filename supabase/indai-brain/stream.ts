@@ -20,6 +20,7 @@ type TalkOptions = {
   history: Anthropic.MessageParam[];
   userText: string;
   search: boolean;
+  admitGuest: boolean;
   signal: AbortSignal;
   headers: HeadersInit;
   finish: (
@@ -38,7 +39,7 @@ export async function streamTalk(opts: TalkOptions) {
   const run = async function* () {
     let sent = "";
     for (let step = 0; step < 4; step++) {
-      const settle = await reserveTokens({ system: opts.system, messages }, 700, opts.search ? 2 : 0);
+      const settle = await reserveTokens({ system: opts.system, messages }, 700, opts.search ? 2 : 0, step === 0 && opts.admitGuest);
       const stream = client.messages.stream({
         model: opts.model,
         max_tokens: 700,
