@@ -18,15 +18,15 @@ written contract, so it can be built and tested from anywhere.
 ## The contract (do not break without agreeing a version bump)
 
 Base URL `https://zptjziewsfuvfcogrikz.supabase.co`. Every call sends the public anon key as `apikey` and `Authorization: Bearer`.
-The only client is `js/relay.js`; it is the single source of truth for request and response shapes.
+The only client is `js/relay.js`. The function sources in `/supabase` are the source of truth for response shapes; the shapes written out below were checked against the deployed brain function.
 
 | Endpoint | Purpose | Shape |
 |---|---|---|
-| `GET /functions/v1/indai-market?kind=snapshot&symbols=SPY,QQQ` | quotes | `{ quotes: { SYM: { last, pct, ... } } }` |
-| `…?kind=bars&symbols=` | 1-minute candles | per symbol `[t,o,h,l,c,v]` |
-| `…?kind=daily&symbols=` | daily candles | same |
-| `…?kind=chain&symbol=&expiry=&range=` | options chain with Greeks and GEX | see `feeds.js` `cboeChain` |
-| `…?kind=news&symbol=` | headlines | `{ items: [{ title, source, url, time }] }` |
+| `GET /functions/v1/indai-market?kind=snapshot&symbols=SPY,QQQ` | quotes | see `supabase/indai-market/index.ts` |
+| `…?kind=bars&symbols=` | 1-minute candles | same file |
+| `…?kind=daily&symbols=` | daily candles | same file |
+| `…?kind=chain&symbol=&expiry=&range=` | options chain with Greeks and GEX | same file |
+| `…?kind=news&symbol=` | headlines | same file |
 | `GET /functions/v1/indai-tv` , `?bars=1&since=` | TradingView alerts and bridge candles | see `supabase/indai-tv/index.ts` |
 | `POST /functions/v1/indai-tv?key=…` | TradingView webhook (private key in `indai_private_config`) | Pine `alert()` JSON |
 | `GET /functions/v1/indai-brain` | status | `{ configured, passcode, memory }` |
