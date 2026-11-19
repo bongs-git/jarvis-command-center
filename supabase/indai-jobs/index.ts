@@ -5,7 +5,10 @@ import { scanPush } from "./push.ts";
 import { refreshGex } from "./gex.ts";
 import { compactMemory } from "./memory.ts";
 
+import { checkBrainStream } from "./brain-check.ts";
+
 const runners: Record<string, (args: any) => Promise<{ ok: boolean; detail: string }>> = {
+  "brain-check": checkBrainStream,
   memory: compactMemory,
   "gex-batch": refreshGex,
   push: scanPush,
