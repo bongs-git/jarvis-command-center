@@ -42,6 +42,7 @@ The only client is `js/relay.js`. The function sources in `/supabase` are the so
 | `POST indai-ears?symbols=QQQ,SPY` with `Content-Type: audio/wav` | server transcription | `{text,alternatives:string[],ms}`. 16 kHz mono 16-bit PCM, up to 30 s / 1 MB. Activate with `INDAI_STT_PROVIDER=deepgram` and the provider secret. |
 | `GET indai-market?kind=health` | scheduled job health | `{jobs:[{job,ok,detail,at,state}]}`. The 09:20 ET `gex` check covers the entire universe. Database failure notifications and an optional HTTPS operations webhook report failures. |
 | `POST /auth/v1/otp {email}` then use the SDK sign-in session | email magic link | Send the public project key as `apikey` and the user access token as Bearer. The existing owner passcode permits signed-out private access. With only the public key, talk is stateless. |
+| `GET indai-market?kind=snapshot/bars/chain` | feed provenance | Same data shapes plus `source,delay` in seconds. Licensed users can receive Massive after provider activation. CBOE fallback reports 900. RSS and job health have no fixed delay. |
 
 Rules: add fields freely, never rename or remove one; errors are `{ error: code, message }` with a real HTTP status;
 every function answers `OPTIONS` with open CORS; nothing secret is ever returned to the client.

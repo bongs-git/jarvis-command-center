@@ -5,6 +5,7 @@ One line per user-visible feature, newest first. The Quest app and the standalon
 
 | Date | Feature | Where | web |
 |---|---|---|---|
+| 2026-11-19 | Market responses identify source and feed delay, with an opt-in licensed real-time adapter. | Backend BE-9 (pending deployment) | todo |
 | 2026-11-19 | Email magic-link accounts isolate saved data and cap research and talk at 60 requests per rolling hour. | Backend BE-8 (pending deployment) | todo |
 | 2026-11-19 | Morning GEX refresh covers both scopes for the saved universe, retries missing tickers, and reports failures. | Backend BE-7 (pending deployment) | todo |
 | 2026-11-19 | Optional server transcription uses watchlist tickers and learned pronunciations. | Backend BE-6 (pending deployment) | todo |

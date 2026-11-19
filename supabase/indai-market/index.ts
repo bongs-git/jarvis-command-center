@@ -1,11 +1,13 @@
 // INDAI market relay: public market data for the INDAI command center.
 // Reads CBOE's free delayed quotes (options chains with Greeks, OI, volume) and news RSS,
 // and returns compact summaries: put/call ratios, premium flow, unusual activity, GEX walls.
+import { licensedKey, minuteBars, optionsRaw, quotes } from "./licensed.ts";
+import { failure } from "../_shared/http.ts";
 import { rpc } from "../_shared/db.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-indai-pass",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
   "Access-Control-Max-Age": "86400",
 };
@@ -22,10 +24,12 @@ async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Prom
   if (cache.size > 60) cache.delete(cache.keys().next().value!);
   return v;
 }
-function json(data: unknown, status = 200, maxAge = 30) {
+function json(data: any, status = 200, maxAge = 30) {
+  const licensed=data.source==="Massive";
+  data={source:"CBOE delayed quotes (about 15 minutes)",delay:900,...data};
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": `public, max-age=${maxAge}` },
+    headers: { ...CORS, "Content-Type": "application/json", "Vary":"Authorization, x-indai-pass", "Cache-Control": licensed ? "private, no-store" : `public, max-age=${maxAge}` },
   });
 }
 const cboeSym = (s: string) => (INDEX.has(s) ? "_" + s : s);
@@ -194,8 +198,30 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const kind = url.searchParams.get("kind") ?? "chain";
   const many = (url.searchParams.get("symbols") ?? "").toUpperCase().split(",").map((x) => x.trim()).filter((x) => SYM.test(x)).slice(0, 16);
+  if (["quote","snapshot","bars","chain"].includes(kind)) {
+    let key: string | null;
+    try { key=await licensedKey(req); } catch(e) { return failure(e); }
+    if (key) {
+      const symbol=(url.searchParams.get("symbol")??"").toUpperCase();
+      const symbols=kind==="snapshot" || kind==="bars" ? many : SYM.test(symbol) ? [symbol] : [];
+      if (symbols.length) try {
+        const q=await cached("massive:q:"+symbols.join(","),2000,()=>quotes(symbols,key!));
+        const meta={source:"Massive",delay:0,delayed:false};
+        if (kind==="snapshot") return json({quotes:q,...meta});
+        if (kind==="quote") return json({...q[0],...meta});
+        if (kind==="bars") {
+          const rows=await Promise.all(q.map(async item=>[item.symbol,await cached("massive:b:"+item.symbol,5000,()=>minuteBars(item,key!))]));
+          return json({bars:Object.fromEntries(rows),note:"1-minute bars, minutes after midnight New York time: [mins, open, high, low, close, volume, callVolume, putVolume]",...meta});
+        }
+        const raw=await cached("massive:options:"+symbol,10000,()=>optionsRaw(symbol,key!,q[0]));
+        const exp=url.searchParams.get("expiry");
+        const range=Math.min(0.25,Math.max(0.01,Number(url.searchParams.get("range")??0.06)||0.06));
+        return json({...analyse(symbol,raw,exp && /^\d{4}-\d{2}-\d{2}$/.test(exp)?exp:null,range),...meta,iv30Available:false});
+      } catch { /* Return the complete delayed product when entitlements, coverage or vendor availability differ. */ }
+    }
+  }
   try {
-    if (kind === "health") return json({jobs:await rpc("indai_job_health")},200,0);
+    if (kind === "health") return json({source:"INDAI",delay:null,jobs:await rpc("indai_job_health")},200,0);
     if (kind === "snapshot") {
       const out = await Promise.all(many.map(async (t) => {
         try {
@@ -255,7 +281,7 @@ Deno.serve(async (req) => {
       const d = raw?.data ?? {};
       return json({ symbol: sym, timestamp: raw?.timestamp ?? null, price: num(d.current_price), change: num(d.price_change), changePct: num(d.price_change_percent), open: num(d.open), high: num(d.high), low: num(d.low), prevClose: num(d.prev_day_close), volume: num(d.volume), iv30: num(d.iv30), iv30Change: num(d.iv30_change) });
     }
-    if (kind === "news") return json(await cached("n:" + sym, 300_000, () => news(sym)), 200, 120);
+    if (kind === "news") return json({...await cached("n:" + sym, 300_000, () => news(sym)),delay:null}, 200, 120);
     if (kind === "debug") {
       const raw = await cboe(`options/${cboeSym(sym)}.json`);
       const d = raw?.data ?? {};
