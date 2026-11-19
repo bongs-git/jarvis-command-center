@@ -1,0 +1,13 @@
+project_id = "zptjziewsfuvfcogrikz"
+
+[functions.indai-brain]
+verify_jwt = false
+entrypoint = "./indai-brain/index.ts"
+
+[functions.indai-market]
+verify_jwt = false
+entrypoint = "./indai-market/index.ts"
+
+[functions.indai-tv]
+verify_jwt = false
+entrypoint = "./indai-tv/index.ts"

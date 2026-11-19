@@ -79,7 +79,7 @@ async function callClaude(key: string, model: string, system: string, userText: 
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
         model, max_tokens: opts.maxTokens ?? 2500, system, messages,
-        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: opts.searches ?? 5 }],
+        ...(opts.searches === 0 ? {} : { tools: [{ type: "web_search_20250305", name: "web_search", max_uses: opts.searches ?? 5 }] }),
       }),
     });
     const j = await r.json();
@@ -134,7 +134,7 @@ Deno.serve(async (req) => {
     const system = `${TALK_SYSTEM}\n\nTrader: ${name}. Now: ${now} (New York).\nmemory = ${JSON.stringify(memory.map((m: any) => ({ id: m.id, text: m.text })))}\nspeech_habits = ${JSON.stringify(body?.speech ?? {}).slice(0, 1500)}`;
     const userText = `They said (as heard): "${clean(body?.question).slice(0, 600)}"\ncontext = ${JSON.stringify(body?.context ?? {}).slice(0, 12000)}`;
     try {
-      const { finalText, sources, usage } = await callClaude(key, MODELS.talk, system, userText, { history: turns, maxTokens: 700, searches: 2 });
+      const { finalText, sources, usage } = await callClaude(key, MODELS.talk, system, userText, { history: turns, maxTokens: 700, searches: body.search === false ? 0 : 2 });
       const parsed = extractJson(finalText) ?? { spoken: finalText.replace(/[{}"]/g, "").slice(0, 400) };
       let remembered: any[] = [];
       try { if (Array.isArray(parsed.remember) && parsed.remember.length) remembered = await memAdd(parsed.remember, "learned"); if (Array.isArray(parsed.forget) && parsed.forget.length) await memForget(parsed.forget); } catch { /* memory is best effort */ }

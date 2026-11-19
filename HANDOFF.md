@@ -18,7 +18,7 @@ written contract, so it can be built and tested from anywhere.
 ## The contract (do not break without agreeing a version bump)
 
 Base URL `https://zptjziewsfuvfcogrikz.supabase.co`. Every call sends the public anon key as `apikey` and `Authorization: Bearer`.
-The only client is `js/relay.js`. The function sources in `/supabase` are the source of truth for response shapes; the shapes written out below were checked against the deployed brain function.
+The only client is `js/relay.js`. The function sources in `/supabase` are the source of truth for response shapes; the original shapes were checked against the deployed brain function. Additions marked pending in `FEATURES.md` describe the release candidate.
 
 | Endpoint | Purpose | Shape |
 |---|---|---|
@@ -32,15 +32,16 @@ The only client is `js/relay.js`. The function sources in `/supabase` are the so
 | `GET /functions/v1/indai-brain` | status | `{ configured, passcode, memory }` |
 | `POST /functions/v1/indai-brain` `{mode:"trade"}` | researched RAG verdict | `{ result: { rag, confidence, headline, spoken, summary[], bullish[], bearish[], news[], events[], watch[], plan_notes } }` |
 | `POST … {mode:"talk", question, history[], context, speech}` | conversation | `{ result: { spoken, summary?, command?, heard_as?, remember?, forget? }, remembered[] }` |
-| `POST … {mode:"memory", op:"list"|"add"|"forget", text?, ids?}` | long-term memory | `{ memory: [{ id, kind, text, created_at }] }` |
+| `POST … {mode:"memory", op:"list"/"add"/"forget", text?, ids?}` | long-term memory | `{ memory: [{ id, kind, text, created_at }] }` |
 | `GET /rest/v1/indai_gex_levels` | morning GEX levels | rows per ticker and scope |
+| `POST indai-brain {mode:"talk",search:false,…}` | answer from supplied context | same talk envelope, empty sources |
 
 Rules: add fields freely, never rename or remove one; errors are `{ error: code, message }` with a real HTTP status;
 every function answers `OPTIONS` with open CORS; nothing secret is ever returned to the client.
 
 ## Back-end backlog (ChatGPT), in priority order
 
-1. **Thinking key.** `ANTHROPIC_API_KEY` secret is not set, so `talk` and researched `trade` return 503 `not_configured`. Owner action: add it in Supabase → Edge Functions → Secrets. (Or swap the brain to another LLM behind the same response shape.)
+1. **Thinking key.** Hosted status reported `configured:true` on November 19, 2026. A no-search talk probe returned spoken text in 6.26 seconds. The target is under three seconds. Run `supabase/checks/brain-live.sh` after deployment.
 2. **Streaming talk.** Add `mode:"talk", stream:true` returning server-sent events (`{delta}` chunks of `spoken`, then one final `{result}`), so INDAI starts speaking on the first sentence.
 3. **Server speech-to-text (optional accuracy upgrade).** `POST /functions/v1/indai-ears` taking 16 kHz mono WAV, returning `{ text, alternatives[] }`. The client already has a single `transcribe()` seam in `js/voice.js` to plug it into.
 4. **Sync what she learns.** Table + endpoints for the speech profile (`indai.speech.v1` and `indai.ears.v1` in localStorage today) so the headset, phone and laptop share one learned profile: `mode:"profile", op:"get"|"put"`.
