@@ -4,9 +4,13 @@ This release targets the existing INDAI project `zptjziewsfuvfcogrikz`. Its SQL 
 
 ## Hosted rollout on November 19, 2026
 
-All six functions are deployed to `zptjziewsfuvfcogrikz`. The public headset key receives stateless talk and streamed speech. A signed-out request for saved history requires the existing owner passcode or a verified account. The live no-search probe returned spoken text in 1.47 seconds, and the live trade returned all eleven verdict fields. The hosted isolation, profile-merge and rate-limit checks used synthetic data inside a rolled-back transaction.
+All six functions are deployed to `zptjziewsfuvfcogrikz`. The public headset key receives stateless talk and streamed speech. Saved history requires either a verified account or a signed-out request with a configured owner passcode. The owner passcode was unset at rollout. The live no-search probe returned spoken text in 1.47 seconds, and the live trade returned all eleven verdict fields. Three production probes timed the first spoken text at 868, 911 and 893 ms, measured from the jobs worker to the brain. Every stream’s deltas reproduced its final spoken text. These timings end at receipt of text. Headset playback is a separate client check.
 
-The GEX table contains both scopes for 112 tickers. The 09:20 watchdog recorded 110 tickers still missing current levels. All 224 rows were current at 09:20:45 ET. After correcting the CBOE envelope's UTC timestamp, the worker verified 14 batches covering all 112 tickers. `kind=health` distinguishes the deadline result (`gex`) from the later completeness check (`gex-coverage`).
+Hosted isolation, profile-merge and rate-limit checks used synthetic data inside a rolled-back transaction. Hosted Auth advertises email sign-in, and public-key-only history requests returned HTTP 401. All six deployed function bundles matched the source files in this release and returned HTTP 204 with open CORS on browser preflight.
+
+The GEX table contains both scopes for 112 tickers. The 09:20 watchdog recorded 110 tickers still missing current levels. All 224 rows were current at 09:20:45 ET. After correcting the CBOE envelope's UTC timestamp, the worker verified 14 batches covering all 112 tickers. `kind=health` distinguishes the deadline result (`gex`) from the later completeness check (`gex-coverage`). A separate failure-only ChatGPT monitor checks the result at 09:22 New York time on weekdays and skips exchange holidays. Its first scheduled check is November 20.
+
+The hosted advisors reported one security warning for `pg_net` in the public schema. The installed extension is non-relocatable. Schedule any extension rebuild separately to preserve the HTTP queue and response history. [Supabase advisor guidance](https://supabase.com/docs/guides/database/database-linter?lint=0014_extension_in_public)
 
 ## Deploy and maintain the existing project
 
@@ -90,4 +94,4 @@ The runner generates credentials for its disposable local database and prints th
 
 The 18 local integration checks used PostgreSQL 18, PostgREST 16, Supabase Auth and local SMTP. They exercised actual HTTP, two user sessions, concurrent writes, incremental SSE, provider adapters, migrations and the job workers. Anthropic, market data, Deepgram and browser push responses were fixtures. Cron, Vault and outbound database HTTP were simulated for those checks. Hosted provider timings, licensed data and browser notification display require the live checks above.
 
-For recovery, keep the previous function revisions available in the dashboard. Restore a compatible function set alongside its database permissions. Reverting to an unscoped legacy brain after accounts have saved private data would expose those accounts. The migrations include owner linkage, retention and compaction. An operations rollback that needs removed records requires a database backup.
+For recovery, keep the previous function revisions available in the dashboard. Restore a compatible function set alongside its database permissions. Reverting to an unscoped legacy brain after accounts have saved private data would expose those accounts. Owner transfer, retention and semantic compaction are held outside the active migrations. If these are activated later, records they remove can only be recovered from a suitable backup.

@@ -52,13 +52,13 @@ every function answers `OPTIONS` with open CORS; nothing secret is ever returned
 ## Back-end backlog (ChatGPT), in priority order
 
 1. **Thinking key.** Hosted status reported `configured:true` on November 19, 2026. A no-search talk probe returned spoken text in 1.47 seconds after rollout. The target is under three seconds. Run `supabase/checks/brain-live.sh` after deployment.
-2. **Streaming talk.** Add `mode:"talk", stream:true` returning server-sent events (`{delta}` chunks of `spoken`, then one final `{result}`), so INDAI starts speaking on the first sentence.
-3. **Server speech-to-text (optional accuracy upgrade).** `POST /functions/v1/indai-ears` taking 16 kHz mono WAV, returning `{ text, alternatives[] }`. The client already has a single `transcribe()` seam in `js/voice.js` to plug it into.
-4. **Sync what she learns.** Table + endpoints for the speech profile (`indai.speech.v1` and `indai.ears.v1` in localStorage today) so the headset, phone and laptop share one learned profile: `mode:"profile", op:"get"|"put"`.
+2. **Streaming talk.** Live. Send `mode:"talk", stream:true` for `{delta}` chunks of `spoken`, then one final result envelope. Three hosted probes received the first spoken text in 868–911 ms. The clients can start playback once they have a sentence.
+3. **Server speech-to-text (optional accuracy upgrade).** `indai-ears` is deployed. Selection and credentials for the optional Deepgram adapter are pending. The endpoint accepts a 16 kHz mono WAV and returns `{ text, alternatives[], ms }`. The client integration point is `transcribe()` in `js/voice.js`.
+4. **Sync what she learns.** `mode:"profile"` with `op:"get"` or `op:"put"` is live for protected profiles, including `indai.speech.v1` and `indai.ears.v1`.
 5. **Accounts.** Email accounts and scoped database access are live. Configure an owner passcode for the signed-out headset. Legacy-owner transfer is staged.
-6. **Morning GEX job.** The scheduler starts at 09:14 ET, retries at 09:17 and audits coverage at 09:20. The November 19 deadline was missed and all 112 tickers subsequently had both scopes.
-7. **Real-time data.** Replace the 15-minute delayed CBOE relay with a licensed real-time source when the owner picks one; keep the response shapes.
-8. **Push alerts.** Web Push for signals when the app is closed (the website will need this on phones).
+6. **Morning GEX job.** The scheduler starts at 09:14 ET, retries at 09:17 and audits coverage at 09:20. The November 19 deadline was missed. All 112 tickers had both scopes at 09:20:45 ET. The weekday failure monitor checks at 09:22 ET.
+7. **Real-time data.** The live CBOE relay reports its 900-second delay. A Massive adapter is available once the owner selects the provider and obtains the required entitlements.
+8. **Push alerts.** Subscription and alert delivery endpoints are deployed. End-to-end browser delivery awaits owner-managed VAPID credentials, client registration and a closed-app test.
 
 ## Front-end backlog (Claude)
 
