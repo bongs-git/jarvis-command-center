@@ -35,6 +35,7 @@ The only client is `js/relay.js`. The function sources in `/supabase` are the so
 | `POST … {mode:"memory", op:"list"/"add"/"forget", text?, ids?}` | long-term memory | `{ memory: [{ id, kind, text, created_at }] }` |
 | `GET /rest/v1/indai_gex_levels` | morning GEX levels | rows per ticker and scope |
 | `POST indai-brain {mode:"talk",search:false,…}` | answer from supplied context | same talk envelope, empty sources |
+| `POST indai-brain {mode:"talk",stream:true,…}` | SSE | `data: {"delta":"…"}`, one final talk envelope, then `data: [DONE]`. A failure after speech starts sends an error event and closes. |
 
 Rules: add fields freely, never rename or remove one; errors are `{ error: code, message }` with a real HTTP status;
 every function answers `OPTIONS` with open CORS; nothing secret is ever returned to the client.

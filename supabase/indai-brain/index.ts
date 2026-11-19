@@ -4,7 +4,7 @@
 // are kept in the indai_memory table and read back into every conversation, on every device.
 // Secrets (set in the Supabase dashboard): ANTHROPIC_API_KEY (required for thinking; memory works without it),
 // INDAI_PASSCODE (optional).
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { streamTalk } from "./stream.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -134,11 +134,15 @@ Deno.serve(async (req) => {
     const system = `${TALK_SYSTEM}\n\nTrader: ${name}. Now: ${now} (New York).\nmemory = ${JSON.stringify(memory.map((m: any) => ({ id: m.id, text: m.text })))}\nspeech_habits = ${JSON.stringify(body?.speech ?? {}).slice(0, 1500)}`;
     const userText = `They said (as heard): "${clean(body?.question).slice(0, 600)}"\ncontext = ${JSON.stringify(body?.context ?? {}).slice(0, 12000)}`;
     try {
+      const finish = async (parsed: any, sources: any[], usage: any) => {
+        let remembered: any[] = [];
+        try { if (Array.isArray(parsed.remember) && parsed.remember.length) remembered = await memAdd(parsed.remember, "learned"); if (Array.isArray(parsed.forget) && parsed.forget.length) await memForget(parsed.forget); } catch { /* memory is best effort */ }
+        return { mode: "talk", model: MODELS.talk, result: parsed, remembered, sources, usage };
+      };
+      if (body.stream === true) return await streamTalk({key, model: MODELS.talk, system, userText, history: turns, search: body.search !== false, signal: req.signal, headers: CORS, finish});
       const { finalText, sources, usage } = await callClaude(key, MODELS.talk, system, userText, { history: turns, maxTokens: 700, searches: body.search === false ? 0 : 2 });
       const parsed = extractJson(finalText) ?? { spoken: finalText.replace(/[{}"]/g, "").slice(0, 400) };
-      let remembered: any[] = [];
-      try { if (Array.isArray(parsed.remember) && parsed.remember.length) remembered = await memAdd(parsed.remember, "learned"); if (Array.isArray(parsed.forget) && parsed.forget.length) await memForget(parsed.forget); } catch { /* memory is best effort */ }
-      return json({ mode: "talk", model: MODELS.talk, result: parsed, remembered, sources, usage });
+      return json(await finish(parsed, sources, usage));
     } catch (e) { return json({ error: "upstream", message: String((e as Error).message ?? e) }, 502); }
   }
   const mode = body?.mode === "chat" ? "chat" : "trade";

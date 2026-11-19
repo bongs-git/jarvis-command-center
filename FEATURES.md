@@ -5,6 +5,7 @@ One line per user-visible feature, newest first. The Quest app and the standalon
 
 | Date | Feature | Where | web |
 |---|---|---|---|
+| 2026-11-19 | Talk can stream the spoken reply as it is generated. | Backend BE-2 (pending deployment) | todo |
 | 2026-11-19 | Talk can explicitly skip web search for a latency-sensitive reply. | Backend BE-1 (pending deployment) | todo |
 | 2026-11-19 | Brand logo on the launch screen and app icons | index.html, icons/, brand/ | todo |
 | 2026-11-19 | Thinking brain "talk" mode: free conversation, runs commands from loose wording, fixes mishears | supabase/indai-brain, js/indai.js `converse` | todo |
