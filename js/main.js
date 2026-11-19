@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { loadSettings, saveSettings, loadDay, saveDay, freshDay, todayET, loadLayout, saveLayout, clearLayout, parseLevels } from './store.js';
 import { MarketFeed, LEADLAG } from './feeds.js';
 import { marketStatus, fmtDuration, etParts, INTERVAL_LABEL, isTradingDay, nextTradingDay, prevTradingDay, etToMs } from './market.js';
-import { TopBar, Watchlist, MainChart, LeadLag, Levels, RiskBreaker, IndaiPanel, AnalysisPanel, CalcPanel, DeepDivePanel, SummaryPanel, PlanPanel, ScenesPanel, Dock, nearestLevel } from './panels.js';
+import { TopBar, Watchlist, MainChart, LeadLag, Levels, RiskBreaker, IndaiPanel, AnalysisPanel, CalcPanel, DeepDivePanel, SummaryPanel, PlanPanel, ScenesPanel, CoachPanel, Dock, nearestLevel } from './panels.js';
 import { STRATEGIES, PROFILES, buildPlan, temperature, scanSetups, suggestContract } from './signals.js';
 import { Indai } from './indai.js';
 import { relay } from './relay.js';
@@ -602,12 +602,13 @@ const P = app.panels;
 P.top = new TopBar(app); P.chart = new MainChart(app); P.dock = new Dock(app);
 P.watch = new Watchlist(app); P.risk = new RiskBreaker(app);
 P.leadlag = new LeadLag(app); P.levels = new Levels(app); P.indai = new IndaiPanel(app);
-P.analysis = new AnalysisPanel(app); P.calc = new CalcPanel(app); P.deep = new DeepDivePanel(app); P.summary = new SummaryPanel(app); P.plan = new PlanPanel(app); P.scenes = new ScenesPanel(app);
+P.analysis = new AnalysisPanel(app); P.calc = new CalcPanel(app); P.deep = new DeepDivePanel(app); P.summary = new SummaryPanel(app); P.plan = new PlanPanel(app); P.scenes = new ScenesPanel(app); P.coach = new CoachPanel(app);
 const panelMeshes = [];
 const maxAniso = renderer.capabilities.getMaxAnisotropy();
 for (const [id, p] of Object.entries(P)) {
   p.setAnisotropy(maxAniso); rig.add(p.mesh); panelMeshes.push(p.mesh);
   if (FOCUS.includes(id)) { p.mesh.visible = false; p.mesh.renderOrder = 3; p.focus = true; p.solid = true; }
+  if (id === 'coach') { p.mesh.visible = false; p.mesh.renderOrder = 4; p.solid = true; p.floating = true; }
 }
 const home = {};   // where each screen lives when not collapsed
 
@@ -616,6 +617,11 @@ function placeDefault(id) {
   const th = THREE.MathUtils.degToRad(deg);
   const m = P[id].mesh;
   m.position.set(Math.sin(th) * R, BASE_Y + dy, -Math.cos(th) * R);
+  m.rotation.set(0, -th, 0);
+}
+function placeCoach() {
+  const th = THREE.MathUtils.degToRad(33), m = P.coach.mesh, r = 1.05;
+  m.position.set(Math.sin(th) * r, BASE_Y + 0.04, -Math.cos(th) * r);
   m.rotation.set(0, -th, 0);
 }
 function placeFocus(id) {
@@ -627,6 +633,7 @@ function applyLayout() {
   const saved = loadLayout();
   for (const id of Object.keys(P)) {
     if (FOCUS.includes(id)) { placeFocus(id); continue; }
+    if (id === 'coach') { placeCoach(); continue; }
     const s = saved[id];
     if (s && Array.isArray(s.p) && Array.isArray(s.q)) { P[id].mesh.position.fromArray(s.p); P[id].mesh.quaternion.fromArray(s.q); }
     else placeDefault(id);
@@ -639,7 +646,7 @@ function persistLayout() {
   if (app.consolidated) return;
   const out = {};
   for (const id of Object.keys(P)) {
-    if (FOCUS.includes(id)) continue;
+    if (FOCUS.includes(id) || id === 'coach') continue;
     out[id] = { p: P[id].mesh.position.toArray(), q: P[id].mesh.quaternion.toArray() };
     home[id] = P[id].mesh.position.clone();
   }
@@ -847,7 +854,7 @@ for (let i = 0; i < 2; i++) {
   cursor.renderOrder = 10; cursor.visible = false; scene.add(cursor);
   const ptr = { i, ctrl, line, cursor, source: null, hit: null, press: null, drag: null, hoverPanel: null, talkBtn: false, talkAt: 0 };
   xrPointers.push(ptr);
-  ctrl.addEventListener('connected', (e) => { ptr.source = e.data; line.visible = true; });
+  ctrl.addEventListener('connected', (e) => { ptr.source = e.data; line.visible = true; if (!e.data.hand) app.tutorialEvent?.('controllers'); });
   ctrl.addEventListener('disconnected', () => { ptr.source = null; line.visible = false; cursor.visible = false; endDrag(ptr); if (ptr.hoverPanel) ptr.hoverPanel.setHover(null); ptr.hoverPanel = null; });
   ctrl.addEventListener('selectstart', () => onPress(ptr, false));
   ctrl.addEventListener('selectend', () => onRelease(ptr));
@@ -875,15 +882,17 @@ function castXR(ptr) {
   return resolveHit(ray.intersectObjects(targets(), false)[0]);
 }
 function onPress(ptr, isSqueeze) {
+  if (ptr.source && ptr.source.hand && !isSqueeze) app.tutorialEvent('pinch');
   const h = ptr.hit;
   if (!h) return;
-  if (h.orb) { if (!isSqueeze) { app.talk(); haptic(ptr, 0.5, 30); } return; }
+  if (h.orb) { if (!isSqueeze) { app.tutorialEvent('talk'); app.talk(); haptic(ptr, 0.5, 30); } return; }
   const b = isSqueeze ? null : h.panel.buttonAt(h.px);
   if (b && !b.disabled) { ptr.press = { panel: h.panel, id: b.id }; h.panel.pressed = b.id; h.panel.dirty = true; haptic(ptr, 0.3, 20); return; }
   if (isSqueeze || h.panel.inHeader(h.px)) {
     const m = h.panel.mesh;
     m.getWorldPosition(_v);
     ptr.drag = { panel: h.panel, dist: h.distance, offset: _v.clone().sub(h.point) };
+    app.tutorialEvent('drag');
     haptic(ptr, 0.5, 30);
   }
 }
@@ -900,7 +909,8 @@ function onRelease(ptr) {
 }
 function endDrag(ptr) {
   if (!ptr.drag) return;
-  const wasFocus = ptr.drag.panel.focus;
+  app.tutorialEvent('dragEnd');
+  const wasFocus = ptr.drag.panel.focus || ptr.drag.panel.floating;
   ptr.drag = null;
   if (!wasFocus) persistLayout();
 }
@@ -939,6 +949,7 @@ function updateXRPointers() {
       if (hp) hp.mesh.getWorldQuaternion(ptr.cursor.quaternion); else ptr.cursor.lookAt(_head);
       ptr.cursor.translateZ(0.002);
       ptr.line.scale.z = h.distance;
+      if (h.orb) app.tutorialEvent('orbHover');
       const overBtn = h.orb || hp.buttonAt(h.px) || hp.inHeader(h.px);
       ptr.cursor.material.color.set(overBtn ? 0xf0c674 : 0xffffff);
     } else {
@@ -951,10 +962,11 @@ function updateXRPointers() {
 // ------------------------------------------------------------------ hand gestures
 const JOINTS = ['wrist', 'middle-finger-metacarpal', 'thumb-tip', 'index-finger-tip', 'middle-finger-tip', 'ring-finger-tip', 'pinky-finger-tip'];
 const gestures = new GestureTracker({
-  onExplode: (sym) => { say(`Exploding ${sym || app.settings.main}.`, 'info', { speak: false }); app.openDeepDive(sym || app.settings.main); },
-  onConsolidate: () => app.consolidate(),
-  onExpand: () => app.restoreAll(),
+  onExplode: (sym) => { app.tutorialEvent('explode'); say(`Exploding ${sym || app.settings.main}.`, 'info', { speak: false }); app.openDeepDive(sym || app.settings.main); },
+  onConsolidate: () => { app.tutorialEvent('consolidate'); app.consolidate(); },
+  onExpand: () => { app.tutorialEvent('expand'); app.restoreAll(); },
 });
+app.handInfo = { left: null, right: null, dist: null, at: 0 };
 function symbolUnder(ptr) {
   const h = ptr.hit;
   if (!h || !h.panel) return null;
@@ -977,7 +989,77 @@ function updateGestures(now) {
     tgt[side] = symbolUnder(ptr);
   }
   if (poses.left || poses.right) gestures.update(now, poses, tgt);
+  // what the headset sees, for the gesture tutorial (and a one-time offer of it)
+  const L = poses.left, R = poses.right;
+  app.handInfo = { left: L ? L.pose : null, right: R ? R.pose : null, dist: L && R ? Math.hypot(L.palm.x - R.palm.x, L.palm.y - R.palm.y, L.palm.z - R.palm.z) : null, at: now };
+  if (L || R) {
+    app.tutorialEvent('hands');
+    const t = app.tutorial;
+    if (t && !t.started && !t.doneAt) {
+      const id = TUTORIAL[t.i].id, hi = app.handInfo, closed = (p) => p === 'pinch' || p === 'fist';
+      const inPos = id === 'pinch' ? (hi.left === 'open' || hi.right === 'open' || hi.left === 'relaxed' || hi.right === 'relaxed')
+        : id === 'explode' ? (closed(hi.left) || closed(hi.right))
+        : id === 'consolidate' ? (hi.dist != null && hi.dist > 0.35 && !closed(hi.left) && !closed(hi.right))
+        : id === 'expand' ? (hi.dist != null && hi.dist < 0.18) : false;
+      if (inPos) { t.started = true; P.coach.dirty = true; }
+    }
+    if (app.tutorial) app.markDirty('coach');
+    if (!app.settings.gestureTutorialOffered && !app.tutorial) {
+      app.settings.gestureTutorialOffered = true; app.saveSettings();
+      say('I can see your hands. Want to learn the gestures? Say “gesture tutorial”, or pinch Gestures on my panel.', 'info');
+    }
+  }
 }
+
+// ------------------------------------------------------------------ gesture tutorial (hands-on, in the headset)
+const TUTORIAL = [
+  { id: 'hands', icon: 'hands', start: 'controllers', finish: 'hands', title: 'Use your hands', lines: ['Start: controllers in your hands.', 'Finish: set them down. Your hands show up as small dots.'] },
+  { id: 'pinch', icon: 'pinch', finish: 'pinch', title: 'Point and pinch to click', lines: ['Start: point at any button with your index finger.', 'Finish: tap your thumb and index finger together. Keep your palm facing away.'] },
+  { id: 'drag', icon: 'drag', start: 'drag', finish: 'dragEnd', title: 'Move a screen', lines: ['Start: point at the bar along the top of a screen, then pinch and hold.', 'Finish: move your hand, then open it to drop the screen.'] },
+  { id: 'explode', icon: 'explode', finish: 'explode', title: 'Explode a ticker', lines: ['Start: point at a ticker in the watchlist and pinch, or make a fist.', 'Finish: quickly flick your fingers wide open. Its deep dive opens.'] },
+  { id: 'consolidate', icon: 'together', finish: 'consolidate', title: 'Collapse everything', lines: ['Start: both hands open, about shoulder-width apart.', 'Finish: bring them together quickly until they almost touch.'] },
+  { id: 'expand', icon: 'apart', finish: 'expand', title: 'Bring the screens back', lines: ['Start: open hands close together.', 'Finish: pull them apart quickly, wider than your shoulders.'] },
+  { id: 'talk', icon: 'orb', start: 'orbHover', finish: 'talk', title: 'Talk to INDAI', lines: ['Start: point at the glowing orb above the screens.', 'Finish: pinch, then say “brief me”.'] },
+];
+app.tutorialSteps = TUTORIAL;
+app.tutorial = null;
+app.startTutorial = () => {
+  if (app.consolidated) app.restoreAll(); else if (app.focus) app.closeFocus();
+  const hi = app.handInfo, handsUp = app.inXR && hi && performance.now() - hi.at < 800 && !!(hi.left || hi.right);
+  app.tutorial = { i: handsUp ? 1 : 0, doneAt: 0, started: !handsUp && xrPointers.some(p => p.source && !p.source.hand) };
+  placeCoach(); P.coach.mesh.visible = true; P.coach.dirty = true;
+  const first = TUTORIAL[app.tutorial.i];
+  if (!app.inXR) say('Gesture tutorial. Each card shows where a gesture starts and where it finishes. The gestures need the headset with hand tracking, so here you can read through them. Tap Next to go on.', 'info');
+  else if (handsUp) say(`Gesture tutorial. I can already see your hands, so let's start with clicking. ${first.lines.join(' ')}`, 'info');
+  else say(`Gesture tutorial, seven quick moves. Each card shows where the gesture starts and where it finishes. ${first.lines.join(' ')}`, 'info');
+};
+app.endTutorial = (finished = false, { speak = true } = {}) => {
+  app.tutorial = null; P.coach.mesh.visible = false;
+  if (finished) say("That's every gesture. Say “gesture tutorial” any time to practice again.", 'good', { speak });
+};
+app.tutorialGo = (dir) => {
+  const t = app.tutorial; if (!t) return;
+  const i = t.i + dir;
+  if (i >= TUTORIAL.length) { app.endTutorial(true); return; }
+  t.i = Math.max(0, i); t.doneAt = 0; t.started = false; P.coach.dirty = true;
+  const st = TUTORIAL[t.i];
+  say(`${st.title}. ${st.lines.join(' ')}`, 'info', { log: false });
+};
+app.tutorialEvent = (id) => {
+  const t = app.tutorial; if (!t || t.doneAt) return;
+  const st = TUTORIAL[t.i]; if (!st) return;
+  if (st.start === id && !t.started) { t.started = true; P.coach.dirty = true; return; }
+  if (st.finish !== id) return;
+  t.started = true; t.doneAt = performance.now(); P.coach.dirty = true;
+  const at = t.i, next = TUTORIAL[t.i + 1];
+  // the last step opens the mic, so stay quiet there and write the wrap-up instead of saying it
+  if (next) say(`Nice. Next: ${next.title.toLowerCase()}. ${next.lines.join(' ')}`, 'good', { log: false });
+  setTimeout(() => {
+    if (app.tutorial !== t || t.i !== at) return;     // moved on by hand (Skip/Back/Exit) in the meantime
+    if (!next) { app.endTutorial(true, { speak: false }); return; }
+    t.i++; t.doneAt = 0; t.started = false; P.coach.dirty = true;
+  }, 1500);
+};
 
 // ------------------------------------------------------------------ entering / leaving the headset
 app.enterXR = async (mode) => {

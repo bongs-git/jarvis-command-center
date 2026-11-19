@@ -420,6 +420,7 @@ export class IndaiPanel extends Panel {
     const [st, col] = vs.listening ? ['Listening…', C.amber] : vs.transcribing ? ['Understanding…', C.violet] : ind.thinking ? [ind.thinking, C.line] : vs.speaking ? ['Speaking', C.up] : ['Ready', C.dim];
     pill(ctx, this.W - 30, 14, st, col, { size: 20, align: 'right' });
     this.button('selftest', 150, 12, 150, 38, ind._testing ? 'Testing…' : 'Self-test', { size: 18, color: C.line, disabled: !!ind._testing, onClick: () => ind.selfTest() });
+    this.button('gestures', 310, 12, 150, 38, 'Gestures', { size: 18, color: C.violet, active: !!this.app.tutorial, onClick: () => this.app.tutorial ? this.app.endTutorial(false) : this.app.startTutorial() });
     let y = a.y;
     const loads = [];
     if (vs.ttsLoad != null) loads.push(`voice ${vs.ttsLoad}%`);
@@ -829,6 +830,125 @@ export class ScenesPanel extends Panel {
       this.buttons.push({ id: 'sc:' + sc.id, x, y, w: tw, h: th, onClick: () => app.setScene(sc.id) });
     });
     text(ctx, 'Say “switch to loft”, “passthrough”, or “next scene”', a.x, a.y + a.h + 4, { size: 18, weight: 500, color: C.faint });
+  }
+}
+
+
+// ---------------------------------------------------------------- Gesture tutorial coach (floats beside the chart)
+function drawHand(ctx, cx, cy, s, mode, flip = 1) {
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(flip, 1);
+  ctx.strokeStyle = C.text; ctx.fillStyle = 'rgba(159,230,255,0.18)'; ctx.lineWidth = s * 0.09; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.ellipse(0, s * 0.25, s * 0.34, s * 0.32, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  const fingers = mode === 'spread' ? [-60, -28, -4, 20, 46] : mode === 'fist' ? null : [-70, -14, -2, 10, 22];
+  if (mode === 'point') {
+    for (let k = 1; k < 4; k++) { ctx.beginPath(); ctx.arc(-s * 0.06 + k * s * 0.12, -s * 0.04, s * 0.065, Math.PI, 0); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(-s * 0.16, 0); ctx.lineTo(-s * 0.16, -s * 0.7); ctx.stroke();                                   // index finger out
+    ctx.beginPath(); ctx.moveTo(-s * 0.3, s * 0.2); ctx.quadraticCurveTo(-s * 0.5, s * 0.02, -s * 0.36, -s * 0.12); ctx.stroke(); // thumb
+  } else if (mode === 'fist') { for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.arc(-s * 0.2 + k * s * 0.135, -s * 0.06, s * 0.07, Math.PI, 0); ctx.stroke(); } }
+  else if (mode === 'pinch') {
+    for (const [a, l] of [[-2, 0.62], [10, 0.58], [22, 0.5]]) { const r = a * Math.PI / 180; ctx.beginPath(); ctx.moveTo(Math.sin(r) * s * 0.25, -Math.cos(r) * s * 0.05); ctx.lineTo(Math.sin(r) * s * l, -Math.cos(r) * s * l); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(-s * 0.12, -s * 0.02); ctx.quadraticCurveTo(-s * 0.32, -s * 0.38, -s * 0.18, -s * 0.5); ctx.stroke();      // index curls
+    ctx.beginPath(); ctx.moveTo(-s * 0.3, s * 0.2); ctx.quadraticCurveTo(-s * 0.48, -s * 0.2, -s * 0.2, -s * 0.5); ctx.stroke();     // thumb meets it
+    ctx.fillStyle = C.gold; ctx.beginPath(); ctx.arc(-s * 0.19, -s * 0.5, s * 0.07, 0, 7); ctx.fill();
+  } else {
+    fingers.forEach((deg, k) => { const r = deg * Math.PI / 180, len = k === 0 ? 0.5 : k === 4 ? 0.52 : 0.66; const bx = Math.sin(r) * s * 0.24, by = -Math.cos(r) * s * 0.0 + (k === 0 ? s * 0.2 : 0); ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + Math.sin(r) * s * len, by - Math.cos(r) * s * len); ctx.stroke(); });
+  }
+  ctx.restore();
+}
+function arrow(ctx, x1, y1, x2, y2, col) {
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  const a = Math.atan2(y2 - y1, x2 - x1); ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - 18 * Math.cos(a - 0.5), y2 - 18 * Math.sin(a - 0.5)); ctx.lineTo(x2 - 18 * Math.cos(a + 0.5), y2 - 18 * Math.sin(a + 0.5)); ctx.closePath(); ctx.fill();
+}
+function miniScreen(ctx, x, y, w, h, col = C.dim, dashed = false) {
+  rrect(ctx, x, y, w, h, 8); ctx.lineWidth = 3; ctx.strokeStyle = col; if (dashed) ctx.setLineDash([8, 7]); ctx.stroke(); ctx.setLineDash([]);
+  if (!dashed) { ctx.fillStyle = C.gold; rrect(ctx, x + w * 0.3, y + 5, w * 0.4, 7, 3.5); ctx.fill(); }
+}
+// One frame of a gesture: phase 'start' or 'finish'.
+function drawGestureFrame(ctx, icon, phase, x, y, w, h) {
+  const cx = x + w / 2, cy = y + h / 2 + 8, s = Math.min(w, h) * 0.5;
+  const fin = phase === 'finish';
+  if (icon === 'hands') {
+    if (!fin) {
+      for (const side of [-1, 1]) {   // two Touch controllers: a round face with a thumbstick, a grip below
+        const ox = cx + side * s * 0.36, oy = cy - s * 0.12;
+        ctx.save(); ctx.translate(ox, oy); ctx.rotate(side * 0.22);
+        ctx.lineWidth = 4; ctx.strokeStyle = C.text; ctx.fillStyle = 'rgba(159,230,255,0.12)';
+        rrect(ctx, -s * 0.09, s * 0.08, s * 0.18, s * 0.5, s * 0.09); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(0, 0, s * 0.24, s * 0.19, 0, 0, 7); ctx.fill(); ctx.stroke();
+        ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(-side * s * 0.08, -s * 0.01, s * 0.075, 0, 7); ctx.stroke();          // thumbstick ring
+        ctx.fillStyle = C.text; ctx.beginPath(); ctx.arc(-side * s * 0.08, -s * 0.01, s * 0.025, 0, 7); ctx.fill();
+        ctx.fillStyle = C.gold; for (const [bx, by] of [[0.1, 0.06], [0.14, -0.05]]) { ctx.beginPath(); ctx.arc(side * s * bx, s * by, s * 0.03, 0, 7); ctx.fill(); }
+        ctx.restore();
+      }
+      text(ctx, 'controllers in hand', cx, y + h - 10, { size: 18, weight: 500, color: C.dim, align: 'center' });
+    }
+    else { drawHand(ctx, cx, cy + s * 0.2, s * 0.95, 'open'); ctx.fillStyle = C.line; for (const [dx, dy] of [[-0.47, -0.25], [-0.2, -0.62], [0.02, -0.66], [0.2, -0.6], [0.36, -0.48]]) { ctx.beginPath(); ctx.arc(cx + dx * s * 0.95, cy + s * 0.2 + dy * s * 0.95, 5, 0, 7); ctx.fill(); } }
+  } else if (icon === 'pinch') {
+    drawHand(ctx, cx, cy + s * 0.25, s * 1.0, fin ? 'pinch' : 'point');
+    if (!fin) { ctx.strokeStyle = 'rgba(90,209,255,0.6)'; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(cx - s * 0.16, cy - s * 0.48); ctx.lineTo(cx - s * 0.16, y + 14); ctx.stroke(); ctx.setLineDash([]); }
+  } else if (icon === 'drag') {
+    if (!fin) { miniScreen(ctx, x + w * 0.12, y + h * 0.16, w * 0.46, h * 0.34); drawHand(ctx, x + w * 0.38, y + h * 0.66, s * 0.62, 'pinch'); }
+    else { miniScreen(ctx, x + w * 0.12, y + h * 0.16, w * 0.46, h * 0.34, 'rgba(255,255,255,0.18)', true); miniScreen(ctx, x + w * 0.46, y + h * 0.26, w * 0.46, h * 0.34, C.line); drawHand(ctx, x + w * 0.74, y + h * 0.76, s * 0.62, 'open'); }
+  } else if (icon === 'explode') {
+    drawHand(ctx, cx, cy + s * 0.2, s * (fin ? 1.0 : 0.9), fin ? 'spread' : 'fist');
+    if (fin) { ctx.strokeStyle = C.gold; ctx.lineWidth = 3; for (let k = 0; k < 7; k++) { const a = -Math.PI * 0.9 + k * Math.PI * 0.8 / 6; ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * s * 0.85, cy + Math.sin(a) * s * 0.85); ctx.lineTo(cx + Math.cos(a) * s * 1.0, cy + Math.sin(a) * s * 1.0); ctx.stroke(); } }
+  } else if (icon === 'together') {
+    if (!fin) { drawHand(ctx, x + w * 0.2, cy + 10, s * 0.62, 'open', -1); drawHand(ctx, x + w * 0.8, cy + 10, s * 0.62, 'open'); text(ctx, '40 cm +', cx, y + h - 12, { size: 18, weight: 600, color: C.dim, align: 'center' }); }
+    else { drawHand(ctx, cx - s * 0.32, cy + 10, s * 0.62, 'open', -1); drawHand(ctx, cx + s * 0.32, cy + 10, s * 0.62, 'open'); miniScreen(ctx, cx - s * 0.28, y + 10, s * 0.56, s * 0.34, C.gold); text(ctx, 'almost touching', cx, y + h - 12, { size: 18, weight: 600, color: C.dim, align: 'center' }); }
+  } else if (icon === 'apart') {
+    if (!fin) { drawHand(ctx, cx - s * 0.32, cy + 10, s * 0.62, 'open', -1); drawHand(ctx, cx + s * 0.32, cy + 10, s * 0.62, 'open'); text(ctx, 'hands together', cx, y + h - 12, { size: 18, weight: 600, color: C.dim, align: 'center' }); }
+    else { drawHand(ctx, x + w * 0.16, cy + 10, s * 0.62, 'open', -1); drawHand(ctx, x + w * 0.84, cy + 10, s * 0.62, 'open'); for (let k = 0; k < 3; k++) miniScreen(ctx, x + w * (0.3 + k * 0.14), y + 12, w * 0.12, h * 0.16, C.line); text(ctx, 'wider than shoulders', cx, y + h - 12, { size: 18, weight: 600, color: C.dim, align: 'center' }); }
+  } else if (icon === 'orb') {
+    const ox = cx + s * 0.1, oy = y + h * 0.28;
+    const g = ctx.createRadialGradient(ox, oy, 3, ox, oy, s * 0.42); g.addColorStop(0, '#e6fbff'); g.addColorStop(0.45, 'rgba(90,209,255,0.8)'); g.addColorStop(1, 'rgba(90,209,255,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ox, oy, s * 0.42, 0, 7); ctx.fill();
+    drawHand(ctx, cx - s * 0.3, y + h * 0.78, s * 0.6, fin ? 'pinch' : 'point');
+    if (!fin) { ctx.strokeStyle = 'rgba(90,209,255,0.6)'; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(cx - s * 0.4, y + h * 0.58); ctx.lineTo(ox - 8, oy + 10); ctx.stroke(); ctx.setLineDash([]); }
+    else { rrect(ctx, x + w * 0.52, y + h * 0.58, w * 0.44, 40, 14); ctx.fillStyle = 'rgba(240,198,116,0.2)'; ctx.fill(); text(ctx, '“brief me”', x + w * 0.74, y + h * 0.58 + 27, { size: 19, weight: 600, color: C.gold, align: 'center' }); }
+  }
+}
+// START -> FINISH, with the start lit once INDAI sees you in position and the finish lit when the gesture lands.
+function drawGestureArt(ctx, icon, x, y, w, h, { started = false, done = false, guide = false } = {}) {
+  const gap = 56, bw = (w - gap) / 2;
+  for (const [i, phase] of [[0, 'start'], [1, 'finish']]) {
+    const bx = x + i * (bw + gap);
+    const lit = phase === 'start' ? started || done : done, col = phase === 'start' ? C.gold : C.up;
+    rrect(ctx, bx, y, bw, h, 18); ctx.fillStyle = lit ? hexA(col, 0.12) : guide ? hexA(col, 0.05) : 'rgba(255,255,255,0.035)'; ctx.fill();
+    ctx.lineWidth = lit ? 3 : 1.5; ctx.strokeStyle = lit ? hexA(col, 0.85) : guide ? hexA(col, 0.4) : 'rgba(255,255,255,0.14)'; ctx.stroke();
+    text(ctx, (lit ? '✓ ' : '') + (phase === 'start' ? 'START' : 'FINISH'), bx + 14, y + 28, { size: 18, weight: 700, color: lit || guide ? col : C.dim, spacing: 3 });
+    ctx.save(); rrect(ctx, bx, y, bw, h, 18); ctx.clip();
+    drawGestureFrame(ctx, icon, phase, bx, y + 18, bw, h - 18);
+    ctx.restore();
+  }
+  arrow(ctx, x + bw + 12, y + h / 2, x + bw + gap - 12, y + h / 2, done ? C.up : C.gold);
+}
+export class CoachPanel extends Panel {
+  constructor(app) { super({ id: 'coach', title: 'Gesture tutorial', w: 0.68, h: 0.56 }); this.app = app; }
+  prepare() { const t = this.app.tutorial; this.title = t ? `Gesture tutorial · ${t.i + 1} of ${this.app.tutorialSteps.length}` : 'Gesture tutorial'; }
+  drawBody(ctx, a) {
+    const app = this.app, t = app.tutorial, W = this.W;
+    this.button('exit', W - 120, 10, 96, 40, 'Exit', { size: 19, color: C.dim, onClick: () => app.endTutorial(false) });
+    if (!t) return;
+    const st = app.tutorialSteps[t.i];
+    const done = !!t.doneAt;
+    drawGestureArt(ctx, st.icon, a.x, a.y, a.w, 236, { started: !!t.started, done, guide: !app.inXR });
+    let y = a.y + 278;
+    if (done) pill(ctx, a.x + a.w, y - 30, '✓ Got it', C.up, { size: 22, align: 'right' });
+    else if (t.started) pill(ctx, a.x + a.w, y - 30, 'Now finish it', C.gold, { size: 20, align: 'right' });
+    text(ctx, st.title, a.x, y, { size: 32, weight: 600, color: done ? C.up : C.white, max: a.w });
+    y += 14;
+    for (const ln of st.lines) y += para(ctx, ln, a.x, y + 26, a.w, { size: 22, color: C.text, maxLines: 2 }) + 4;
+    // what the headset sees right now
+    const hi = app.handInfo || {};
+    const fresh = hi.at && performance.now() - hi.at < 600 && (hi.left || hi.right);
+    const name = (p) => p ? ({ pinch: 'pinch', fist: 'fist', spread: 'fingers wide', open: 'open', relaxed: 'relaxed' }[p] || p) : 'not seen';
+    const line = !app.inXR ? 'Live hand tracking works in the headset.' : fresh ? `Left: ${name(hi.left)} · Right: ${name(hi.right)}${hi.dist != null ? ` · ${Math.round(hi.dist * 100)} cm apart` : ''}` : 'No hands seen yet. Set the controllers down.';
+    rrect(ctx, a.x, a.y + a.h - 108, a.w, 46, 14); ctx.fillStyle = 'rgba(90,209,255,0.08)'; ctx.fill();
+    text(ctx, line, a.x + 16, a.y + a.h - 77, { size: 20, weight: 500, fam: F.mono, color: fresh ? C.line : C.dim, max: a.w - 32 });
+    const bw = (a.w - 24) / 3, by = a.y + a.h - 50;
+    this.button('back', a.x, by, bw, 48, 'Back', { size: 21, disabled: t.i === 0, onClick: () => app.tutorialGo(-1) });
+    this.button('again', a.x + bw + 12, by, bw, 48, 'Say it again', { size: 21, onClick: () => app.indai.say(`${st.title}. ${st.lines.join(' ')}`, 'info', { log: false }) });
+    this.button('next', a.x + (bw + 12) * 2, by, bw, 48, t.i === app.tutorialSteps.length - 1 ? 'Finish' : app.inXR ? 'Skip' : 'Next', { size: 21, color: C.gold, onClick: () => app.tutorialGo(1) });
   }
 }
 

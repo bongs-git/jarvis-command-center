@@ -91,9 +91,9 @@ export class Indai {
   get speaking() { return this.voice.state.speaking; }
   get listening() { return this.voice.state.listening || this.voice.state.transcribing; }
 
-  say(text, kind = 'info', { speak = true } = {}) {
+  say(text, kind = 'info', { speak = true, log = true } = {}) {
     if (!text) return;
-    this.log.push({ t: Date.now(), text, kind });
+    if (log) this.log.push({ t: Date.now(), text, kind });
     if (!this.app.inXR && kind !== 'you') this.app.caption?.(text, kind);
     if (this.log.length > 60) this.log.splice(0, this.log.length - 60);
     this.app.markDirty('indai');
@@ -170,6 +170,10 @@ export class Indai {
     if (/\b(restore|bring (back|them back|the screens back)|expand( everything| all)?|show (all|every) ?(screens|windows))\b/.test(t)) { app.restoreAll(); return true; }
     if (/\b(consolidate|summari[sz]e (everything|all)|one window|everything at a glance|collapse)\b/.test(t) || /^ (summary|give me a summary|the summary) $/.test(t)) { app.consolidate(); return true; }
     if (/\btrading ?view\b/.test(t) && /\b(open|show|pull up|launch|go to)\b/.test(t)) { app.openTradingView(symIn(t)); return true; }
+    if (/\b(gestures?|hand) (tutorial|lesson|training|practice|guide)\b|\b(teach|show) me (the |how to (use |do )?)?(hand )?gestures\b|\bhow do (the )?gestures work\b/.test(t)) { app.startTutorial(); return true; }
+    if (app.tutorial && /\b(exit|end|stop|close|quit) (the )?tutorial\b/.test(t)) { app.endTutorial(false); return true; }
+    if (app.tutorial && /^ (next|skip|skip it|next step|go on) $/.test(t)) { app.tutorialGo(1); return true; }
+    if (app.tutorial && /^ (back|go back|previous|last step) $/.test(t)) { app.tutorialGo(-1); return true; }
     if (/\b(self ?test|test (yourself|everything|the system|all systems)|diagnostics?|system check|systems check|are you working|run a test)\b/.test(t)) { this.selfTest(); return true; }
     if (/\b(practice|test|sample|demo) (alert|signal|setup)\b/.test(t)) { app.practiceAlert(); return true; }
     if (/\b(start (my|the) day|game ?plan|check ?in|new plan|change (the|my) plan|set (the|my|up the) plan|let s (get started|start|go))\b/.test(t)) { this.startDay({ voice: true }); return true; }

@@ -11,6 +11,7 @@ INDAI is a voice-driven options trading command center that floats in your room.
 - **Screens.** Main chart with GEX lines, watchlist, lead/lag, GEX levels, risk breaker, and the INDAI feed.
 - **Scenes.** Switch between **Passthrough** (your real room) and virtual spaces: a sunlit **Loft** with city views, a **Midnight** penthouse over a lit-up skyline, an **Ocean sunset** deck, **Orbit** above Earth, and the classic **Command deck**. Tap **Scene** on the dock or say "switch to loft", "passthrough" or "next scene"; it changes instantly without leaving the headset view.
 - **Hand gestures.** Pinch, then spread your fingers to "explode" a ticker into a deep dive. Bring your open hands together to collapse everything into one summary; pull them apart to bring the screens back.
+- **Gesture tutorial.** Say "gesture tutorial" or pinch **Gestures** on INDAI's panel. Each of the seven moves shows where it starts and where it finishes; START lights up when INDAI sees you in position and FINISH when the gesture lands, then it moves on. A live line shows what the headset sees (each hand's pose and how far apart they are).
 
 INDAI's analysis is information, not financial advice. You make every trade.
 
