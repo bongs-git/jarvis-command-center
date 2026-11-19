@@ -19,3 +19,7 @@ entrypoint = "./indai-jobs/index.ts"
 [functions.indai-ears]
 verify_jwt = false
 entrypoint = "./indai-ears/index.ts"
+
+[auth.email]
+enable_signup = true
+enable_confirmations = true

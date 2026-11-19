@@ -1,4 +1,5 @@
-import { account, db } from "../_shared/db.ts";
+import { account, rateLimit } from "../_shared/auth.ts";
+import { db } from "../_shared/db.ts";
 import { bytes, CORS, failure, HttpError, json } from "../_shared/http.ts";
 import { wavDuration } from "./wav.ts";
 
@@ -21,6 +22,7 @@ Deno.serve(async (req) => {
     if (Deno.env.get("INDAI_STT_PROVIDER") !== "deepgram" || !key) {
       throw new HttpError(503, "not_configured", "Server transcription has not been enabled.");
     }
+    await rateLimit(user, "speech");
     const rows = await db("indai_profile", {
       user_id: "eq." + user,
       key: "in.(indai.speech.v1,watchlist,plan)",

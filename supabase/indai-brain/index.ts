@@ -5,7 +5,8 @@
 // Secrets (set in the Supabase dashboard): ANTHROPIC_API_KEY (required for thinking; memory works without it),
 // INDAI_PASSCODE (optional).
 import { clean, ids, memAdd, memForget, memList } from "./memory.ts";
-import { account, rpc, uuid } from "../_shared/db.ts";
+import { account, rateLimit } from "../_shared/auth.ts";
+import { rpc, uuid } from "../_shared/db.ts";
 import { clearHistory, recentTurns, saveTurns, sessionName } from "./history.ts";
 import { failure, HttpError, objectBody } from "../_shared/http.ts";
 import { profile } from "./profile.ts";
@@ -94,7 +95,6 @@ Deno.serve(async (req) => {
   const key = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
   const pass = Deno.env.get("INDAI_PASSCODE") ?? "";
   if (req.method === "GET") return json({ configured: !!key, passcode: !!pass, memory: !!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") });
-  if (pass && req.headers.get("x-indai-pass") !== pass) return json({ error: "passcode", message: "Wrong or missing INDAI passcode." }, 401);
   if (req.method !== "POST") return json({error:"method",message:"Use GET or POST."},405);
   let body: any, session = "default", talkUser: string | null = null;
   try {
@@ -108,7 +108,6 @@ Deno.serve(async (req) => {
     }
     if (body.mode === "talk") {
       if (body.request_id != null && !uuid.test(body.request_id)) throw new HttpError(400,"bad_request","request_id must be a UUID.");
-      if (pass) talkUser = await account(req);
     }
     if (body.mode === "profile") return await profile(req, body);
   } catch (e) { return failure(e); }
@@ -122,6 +121,7 @@ Deno.serve(async (req) => {
     } catch(e) { return failure(e); }
   }
   if (!key) return json({ error: "not_configured", message: "INDAI's research needs an Anthropic API key saved as the ANTHROPIC_API_KEY secret." }, 503);
+  try { talkUser = await account(req,true); await rateLimit(talkUser); } catch(e) { return failure(e); }
   if (body?.mode === "talk") {
     const name = String(body?.name ?? "there").slice(0, 30);
     const now = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" }).format(new Date());

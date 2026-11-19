@@ -1,4 +1,5 @@
-import { account, db, rpc, uuid } from "../_shared/db.ts";
+import { account } from "../_shared/auth.ts";
+import { db, rpc, uuid } from "../_shared/db.ts";
 import { HttpError, json } from "../_shared/http.ts";
 
 const aliases: Record<string, string> = { speech: "indai.speech.v1", ears: "indai.ears.v1" };

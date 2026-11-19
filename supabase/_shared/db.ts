@@ -1,6 +1,5 @@
 import { HttpError } from "./http.ts";
 
-export const legacyId = "00000000-0000-4000-8000-000000000001";
 export const uuid = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
 export async function db(path: string, query: Record<string, string> = {}, init: RequestInit = {}) {
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -32,9 +31,3 @@ export async function db(path: string, query: Record<string, string> = {}, init:
 }
 export const rpc = (name: string, args: Record<string, unknown> = {}) =>
   db("rpc/" + name, {}, { method: "POST", body: JSON.stringify(args) });
-
-export async function account(req: Request) {
-  const pass = Deno.env.get("INDAI_PASSCODE");
-  if (pass && req.headers.get("x-indai-pass") === pass) return legacyId;
-  throw new HttpError(401, "passcode", "Use the owner passcode to access saved data.");
-}

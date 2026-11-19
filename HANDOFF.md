@@ -17,7 +17,7 @@ written contract, so it can be built and tested from anywhere.
 
 ## The contract (do not break without agreeing a version bump)
 
-Base URL `https://zptjziewsfuvfcogrikz.supabase.co`. Every call sends the public anon key as `apikey` and `Authorization: Bearer`.
+Base URL `https://zptjziewsfuvfcogrikz.supabase.co`. Clients send the public project key as `apikey`. Send the signed-in user’s access token as `Authorization: Bearer`, or the public key for a signed-out request.
 The only client is `js/relay.js`. The function sources in `/supabase` are the source of truth for response shapes; the original shapes were checked against the deployed brain function. Additions marked pending in `FEATURES.md` describe the release candidate.
 
 | Endpoint | Purpose | Shape |
@@ -41,6 +41,7 @@ The only client is `js/relay.js`. The function sources in `/supabase` are the so
 | `POST indai-brain {mode:"memory",op:"add",text,kind?}` | learned memory | Rows add `uses,last_used`. Kinds are fact, preference, rule or vocabulary. Talk can return `used_ids`. |
 | `POST indai-ears?symbols=QQQ,SPY` with `Content-Type: audio/wav` | server transcription | `{text,alternatives:string[],ms}`. 16 kHz mono 16-bit PCM, up to 30 s / 1 MB. Activate with `INDAI_STT_PROVIDER=deepgram` and the provider secret. |
 | `GET indai-market?kind=health` | scheduled job health | `{jobs:[{job,ok,detail,at,state}]}`. The 09:20 ET `gex` check covers the entire universe. Database failure notifications and an optional HTTPS operations webhook report failures. |
+| `POST /auth/v1/otp {email}` then use the SDK sign-in session | email magic link | Send the public project key as `apikey` and the user access token as Bearer. The existing owner passcode permits signed-out private access. With only the public key, talk is stateless. |
 
 Rules: add fields freely, never rename or remove one; errors are `{ error: code, message }` with a real HTTP status;
 every function answers `OPTIONS` with open CORS; nothing secret is ever returned to the client.
