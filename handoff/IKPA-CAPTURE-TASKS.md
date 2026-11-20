@@ -28,7 +28,7 @@ contract rows. Never send the knowledge base to the browser.
   asks, so nothing breaks, and nothing lights up either.
 - Done when: GET lists `modes`, and `{mode:"nonsense"}` returns 400 without a model call.
 
-**Done November 20, 2026** in `indai-brain` version 12.
+**Done November 20, 2026** in `indai-brain` version 18.
 
 ### CAP-1 · `mode:"atlas", op:"scan"`: numbers for the patterns found in a capture · P0
 Builds on ATLAS-5 (the same reader and engine, with no model call, scoped to the owner).
@@ -56,7 +56,7 @@ Response:
 - Done when: the request above returns the hammer's below/high/5 cell (0.573 / 0.543 / 1101), and an untested code
   returns no numbers.
 
-**Done November 20, 2026** in `indai-brain` version 12. The request above returns 0.5731 / 0.5428 / 1101 with
+**Done November 20, 2026** in `indai-brain` version 18. The request above returns 0.5731 / 0.5428 / 1101 with
 `light:"RED"`, not the `AMBER` of the example: the earlier years went the other way in that cell, which is also the
 book's own grade for it (ATLAS-5 says the same). Each read also carries `name`, `side`, `lift`, `net`, `horizon` and
 `scope` (`cell` or `overall`).
@@ -90,7 +90,7 @@ Request:
   answer.
 - Done when: `days=6000` for SPY returns more than 2,500 rows.
 
-**Deployed November 20, 2026** in `indai-market` version 11, not yet seen working: daily candles come from CBOE,
+**Deployed November 20, 2026** in `indai-market` version 16, not yet seen working: daily candles come from CBOE,
 which has refused INDAI's servers since the evening of November 19 (`supabase/OPERATIONS.md`, "When CBOE refuses the
 backend"). The check above waits for CBOE to answer again or for another source of daily candles.
 
