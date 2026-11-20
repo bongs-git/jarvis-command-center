@@ -5,6 +5,7 @@ One line per user-visible feature, newest first. The Quest app and the standalon
 
 | Date | Feature | Where | web |
 |---|---|---|---|
+| 2026-11-20 | Headset matches the website's look: same palette, Geist and Geist Mono shipped with the app (works offline), flat panels with hairline borders, gold for brand and selected, gold corner brackets on the chart, website chart colours and line styles, logo on the top bar | index.html, js/hud.js, js/panels.js, fonts/, brand/ | done (source of the look) |
 | 2026-11-19 | Brain spending has a daily token budget, and TradingView webhooks enforce a 16 KiB payload limit. | Backend BE-11 (budget and bridge limits live, retention staged) | todo |
 | 2026-11-19 | Web Push endpoints support A-grade setup notifications from completed bridge candles during market hours. | Backend BE-10 (deployed, VAPID and browser acceptance pending) | todo |
 | 2026-11-19 | Market responses identify source and feed delay, with an opt-in licensed real-time adapter. | Backend BE-9 (delayed feed live, licensing pending) | todo |

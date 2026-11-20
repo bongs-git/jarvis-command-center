@@ -321,7 +321,7 @@ function initCalc(app, toast) {
       const isSpot = Math.abs(p - S) <= grid.step / 2;
       html += `<tr class="${isSpot ? 'spotrow' : ''}"><td class="px">${px(p)}${isSpot ? ' ●' : ''}</td>` + grid.grid[i].map(v => {
         const t = Math.min(1, Math.abs(v) / max), a = (0.08 + 0.6 * t).toFixed(2);
-        return `<td style="background:${v >= 0 ? `rgba(52,211,153,${a})` : `rgba(248,113,113,${a})`}">${cell(v)}</td>`;
+        return `<td style="background:${v >= 0 ? `rgba(62,207,142,${a})` : `rgba(242,112,107,${a})`}">${cell(v)}</td>`;
       }).join('') + '</tr>';
     });
     $('c-heat').innerHTML = html + '</tbody></table>';
@@ -339,18 +339,18 @@ function initCalc(app, toast) {
     const e = xs.map(x => positionPnl(c.legs, x, atExp, rr)), t = xs.map(x => positionPnl(c.legs, x, now, rr));
     const ymin = Math.min(0, ...e, ...t), ymax = Math.max(0, ...e, ...t), pad = (ymax - ymin) * 0.1 || 10;
     const X = (v) => 50 + (v - lo) / (hi - lo) * (W - 70), Y = (v) => 16 + (1 - (v - ymin + pad) / (ymax - ymin + 2 * pad)) * (H - 40);
-    ctx.font = '12px Geist Mono, monospace'; ctx.fillStyle = '#66758a';
+    ctx.font = '12px Geist Mono, monospace'; ctx.fillStyle = '#5f6a7a';
     ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = 1;
     for (let k = 0; k <= 4; k++) { const v = ymin - pad + (ymax - ymin + 2 * pad) * k / 4; ctx.beginPath(); ctx.moveTo(50, Y(v)); ctx.lineTo(W - 20, Y(v)); ctx.stroke(); ctx.fillText(money(v), 4, Y(v) + 4); }
     for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4; ctx.fillText(px(v), X(v) - 18, H - 6); }
     ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.beginPath(); ctx.moveTo(50, Y(0)); ctx.lineTo(W - 20, Y(0)); ctx.stroke();
-    ctx.setLineDash([4, 5]); ctx.strokeStyle = '#5ad1ff'; ctx.beginPath(); ctx.moveTo(X(S), 10); ctx.lineTo(X(S), H - 24); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = '#5ad1ff'; ctx.fillText(`now ${px(S)}`, X(S) + 5, 22);
+    ctx.setLineDash([4, 5]); ctx.strokeStyle = '#6ec3f2'; ctx.beginPath(); ctx.moveTo(X(S), 10); ctx.lineTo(X(S), H - 24); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = '#6ec3f2'; ctx.fillText(`now ${px(S)}`, X(S) + 5, 22);
     // fill at expiry
-    for (let i = 0; i < N; i++) { ctx.fillStyle = e[i] >= 0 ? 'rgba(52,211,153,.18)' : 'rgba(248,113,113,.18)'; ctx.beginPath(); ctx.moveTo(X(xs[i]), Y(0)); ctx.lineTo(X(xs[i]), Y(e[i])); ctx.lineTo(X(xs[i + 1]), Y(e[i + 1])); ctx.lineTo(X(xs[i + 1]), Y(0)); ctx.fill(); }
+    for (let i = 0; i < N; i++) { ctx.fillStyle = e[i] >= 0 ? 'rgba(62,207,142,.18)' : 'rgba(242,112,107,.18)'; ctx.beginPath(); ctx.moveTo(X(xs[i]), Y(0)); ctx.lineTo(X(xs[i]), Y(e[i])); ctx.lineTo(X(xs[i + 1]), Y(e[i + 1])); ctx.lineTo(X(xs[i + 1]), Y(0)); ctx.fill(); }
     const line = (arr, col, w) => { ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath(); arr.forEach((v, i) => i ? ctx.lineTo(X(xs[i]), Y(v)) : ctx.moveTo(X(xs[i]), Y(v))); ctx.stroke(); };
-    line(e, '#eef4fb', 2.2); line(t, '#f0c674', 2);
-    ctx.font = '12px Geist, sans-serif'; ctx.fillStyle = '#eef4fb'; ctx.fillText('— at expiry', W - 190, 22); ctx.fillStyle = '#f0c674'; ctx.fillText('— now', W - 100, 22);
+    line(e, '#f3f1ea', 2.2); line(t, '#dcbf6e', 2);
+    ctx.font = '12px Geist, sans-serif'; ctx.fillStyle = '#f3f1ea'; ctx.fillText('— at expiry', W - 190, 22); ctx.fillStyle = '#dcbf6e'; ctx.fillText('— now', W - 100, 22);
   }
 }
 function expLabel(exp) {
