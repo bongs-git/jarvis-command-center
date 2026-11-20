@@ -3,8 +3,10 @@ import { serve, markMode } from "../_shared/http.ts";
 // researched red/amber/green assessment, using Claude with live web search.
 // It is also her conversational mind ("talk" mode) and her long-term memory: things the trader teaches her
 // are kept in the indai_memory table and read back into every conversation, on every device.
+// With more keys set, a researched answer uses three brains (see super.ts): Perplexity researches, Claude
+// judges, ChatGPT gives a second opinion and stands in when Claude cannot answer.
 // Secrets (set in the Supabase dashboard): ANTHROPIC_API_KEY (required for thinking; memory works without it),
-// INDAI_PASSCODE (optional).
+// INDAI_PASSCODE (optional), PERPLEXITY_API_KEY (optional), OPENAI_API_KEY (optional).
 import { reserveTokens } from "../_shared/budget.ts";
 import { clean, ids, memAdd, memForget, memList } from "./memory.ts";
 import { account, rateLimit } from "../_shared/auth.ts";
@@ -13,6 +15,7 @@ import { clearHistory, recentTurns, saveTurns, sessionName } from "./history.ts"
 import { failure, HttpError, objectBody } from "../_shared/http.ts";
 import { profile } from "./profile.ts";
 import { streamTalk } from "./stream.ts";
+import { brainStatus, extractJson, think } from "./super.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -88,17 +91,11 @@ async function callClaude(key: string, model: string, system: string, userText: 
   return { finalText, sources, usage };
 }
 
-function extractJson(text: string) {
-  const a = text.indexOf("{"), b = text.lastIndexOf("}");
-  if (a < 0 || b <= a) return null;
-  try { return JSON.parse(text.slice(a, b + 1)); } catch { return null; }
-}
-
 serve("indai-brain",async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const key = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
   const pass = Deno.env.get("INDAI_PASSCODE") ?? "";
-  if (req.method === "GET") return json({ configured: !!key, passcode: !!pass, memory: !!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") });
+  if (req.method === "GET") return json({ configured: !!key, passcode: !!pass, memory: !!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"), brains: brainStatus(!!key) });
   if (req.method !== "POST") return json({error:"method",message:"Use GET or POST."},405);
   let body: any, session = "default", talkUser: string | null = null;
   try {
@@ -173,18 +170,26 @@ serve("indai-brain",async (req) => {
     } catch(e) { return failure(e); }
   }
   const mode = body?.mode === "chat" ? "chat" : "trade";
-  const model = MODELS[body?.depth === "deep" ? "deep" : "fast"];
+  const depth = body?.depth === "deep" ? "deep" : "fast";
+  const model = MODELS[depth];
   const name = String(body?.name ?? "there").slice(0, 30);
   const now = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" }).format(new Date());
   const ctx = JSON.stringify(body?.context ?? {}).slice(0, 24000);
+  const question = String(body?.question ?? "").slice(0, 600);
   const userText = mode === "trade"
-    ? `Trader: ${name}. Now: ${now} (New York).\nTheir words: "${String(body?.question ?? "").slice(0, 600)}"\nParsed idea: ${JSON.stringify(body?.idea ?? {})}\ncontext = ${ctx}\nResearch what you need, then give the JSON assessment.`
-    : `Trader: ${name}. Now: ${now} (New York).\nQuestion: "${String(body?.question ?? "").slice(0, 600)}"\ncontext = ${ctx}`;
+    ? `Trader: ${name}. Now: ${now} (New York).\nTheir words: "${question}"\nParsed idea: ${JSON.stringify(body?.idea ?? {})}\ncontext = ${ctx}\nResearch what you need, then give the JSON assessment.`
+    : `Trader: ${name}. Now: ${now} (New York).\nQuestion: "${question}"\ncontext = ${ctx}`;
+  // The other brains get the same evidence without the trader's name.
+  const evidence = mode === "trade"
+    ? `Now: ${now} (New York).\nThe trader's words: "${question}"\nParsed idea: ${JSON.stringify(body?.idea ?? {}).slice(0, 2000)}\ncontext = ${ctx}`
+    : `Now: ${now} (New York).\nQuestion: "${question}"\ncontext = ${ctx}`;
+  const system = mode === "trade" ? SYSTEM : CHAT_SYSTEM;
   try {
-    const { finalText, sources, usage } = await callClaude(key, model, mode === "trade" ? SYSTEM : CHAT_SYSTEM, userText);
-    const parsed = extractJson(finalText);
-    if (!parsed) return json({ error: "parse", message:"The provider returned an incomplete assessment.", raw:"", sources }, 502);
-    return json({ mode, model, result: parsed, sources, usage });
+    const answer = await think({
+      mode, depth, model, system, userText, evidence, now, question, idea: body?.idea, context: body?.context,
+      claude: (text, searches) => callClaude(key, model, system, text, searches == null ? {} : { searches }),
+    });
+    return json(answer.body, answer.status);
   } catch (e) {
     return failure(e);
   }

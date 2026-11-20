@@ -76,5 +76,12 @@ Back-end behaviour the site can rely on (details in `HANDOFF.md`):
 10. **Check on the owner's iPhone:** INDAI's voice out loud with the ring switch off, and a push with the app closed.
     Both were built and tested in emulation only.
 
+11. **Show the three brains** (added later on November 20). A rated idea's answer now carries `brains` (who worked
+    on it: Perplexity researched, Claude judged, ChatGPT gave a second opinion) and, when ChatGPT answered,
+    `result.second` (`rag`, `confidence`, `reason`, `risk`, `agrees`). On the verdict card show a small
+    "Second opinion" row with its colour and reason, marked clearly when it disagrees, and one quiet line such as
+    "Researched by Perplexity · judged by Claude · checked by ChatGPT". In Settings show which brains are on from
+    `GET indai-brain` → `brains`. The contract row is in `HANDOFF.md`; nothing breaks if you ignore the new fields.
+
 Ask Ikpa (through the owner, or a note at the top of `HANDOFF.md`) for anything that needs the back end: a new field,
 an endpoint, a job. Do not work around a missing one in the browser.

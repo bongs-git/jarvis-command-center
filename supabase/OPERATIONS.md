@@ -63,13 +63,41 @@ On November 19 from about 17:25 ET, CBOE answered every request from the functio
 
 `supabase/checks/bridge_test.ts` covers the fallback. To see what the hosted function is answering, call `kind=snapshot` and read each quote's `source` and `error`; a quote with `ok:false` carries CBOE's status in `error`.
 
-Deploying one function without the CLI: upload every file of its bundle with the same names the hosted bundle has (`indai-market/index.ts`, `indai-market/licensed.ts`, `indai-market/bridge.ts`, `_shared/http.ts`, `_shared/auth.ts`, `_shared/db.ts`), entrypoint `indai-market/index.ts`, `verify_jwt` as in `config.toml`, then read the bundle back and compare it with the repository byte for byte. Version 10 was deployed and checked that way.
+Deploying one function without the CLI: upload every file of its bundle with the same names the hosted bundle has (`indai-market/index.ts`, `indai-market/licensed.ts`, `indai-market/bridge.ts`, `_shared/http.ts`, `_shared/auth.ts`, `_shared/db.ts`), entrypoint `indai-market/index.ts`, `verify_jwt` as in `config.toml`, then read the bundle back and compare it with the repository byte for byte. Version 10 was deployed and checked that way. The brain's bundle is `indai-brain/index.ts`, `history.ts`, `memory.ts`, `profile.ts`, `stream.ts`, `super.ts` and `_shared/http.ts`, `budget.ts`, `db.ts`, `auth.ts`, with `verify_jwt` off.
+
+## Three brains
+
+From version 11, `indai-brain` can answer a researched request (`trade` and `chat`) with three models, each with one job (`indai-brain/super.ts`). The owner's order of trust, November 20: "Your brain, perplexity especially and then ChatGPT last".
+
+| Brain | Job | Switched on by |
+|---|---|---|
+| Claude | The judge: writes the verdict or the answer, as before. | `ANTHROPIC_API_KEY` |
+| Perplexity | The research desk, first in line: today's news, events and sentiment from the live web, with sources. Claude is then handed that research and one search of its own (three on a deep idea) instead of five. | `PERPLEXITY_API_KEY` |
+| ChatGPT | Last: an independent second read of every trade idea, run at the same time as Claude, and the stand-in when Claude is down or its reply is cut off. | The Perplexity key (through Perplexity's model catalog, `openai/gpt-6.1-sol`), or `OPENAI_API_KEY` to ask OpenAI directly |
+
+- With neither key set nothing calls out and the function answers as version 10 did.
+- Claude's rating always stands. A second opinion that disagrees lowers `confidence` (10 for one step apart, 25 for green against red), adds one line to `summary` and one sentence to `spoken`. It is kept in `result.second`.
+- A failed research step or second opinion never fails the answer: Claude then searches as before. The answer's `brains` list says who did what, and the function logs one line per answer (`"brains":[…]`, with the provider's error type in `detail`).
+- A spent daily budget or a refused request is final. ChatGPT stands in for an outage or a cut-off reply, never around the budget.
+- Every outside call reserves and settles tokens in the same daily budget as Claude (`INDAI_DAILY_TOKEN_BUDGET`).
+- Perplexity is sent the question, the parsed idea, the ticker and the headlines on screen. ChatGPT is sent the context Claude gets. Neither is sent the trader's name.
+- Conversation (`talk`) is unchanged: Claude alone, with its own web search.
+- Requests to Perplexity are spaced a little over a second apart, because its smallest usage tier takes one request a second.
+
+Checked against Perplexity's documentation on November 20, 2026: the Sonar chat-completions API ended on September 27, 2026 and the Agent API (`POST https://api.perplexity.ai/v1/agent`, the same shape as OpenAI's `POST /v1/responses`) replaces it; its catalog includes OpenAI, Anthropic and Google models; API credits are bought in advance at console.perplexity.ai and are separate from a Pro or Max subscription.
+
+Not yet run against the real providers: no key was set when version 11 was deployed, so the provider calls have run only against stand-ins (`supabase/checks/super_test.ts`, 16 tests). After the owner saves a key, read the first researched answer's `brains`, or the log line, before trusting it. If Perplexity refuses the research request's shape, the function already retries in the plain form (`model: "perplexity/sonar"` with the `web_search` tool).
 
 ## Owner-controlled configuration
 
 | Setting | Purpose |
 |---|---|
 | `ANTHROPIC_API_KEY` | Active for talk and trade. |
+| `PERPLEXITY_API_KEY` | Optional. Switches on Perplexity's research for `trade` and `chat`, and ChatGPT's second opinion through the same key. Created at console.perplexity.ai; needs API credits, which a Pro or Max subscription does not include. |
+| `OPENAI_API_KEY` | Optional. Sends ChatGPT's part straight to OpenAI instead of through Perplexity. A ChatGPT subscription does not include API use. |
+| `INDAI_SECOND_OPINION=off` | Optional. Keeps the research and the stand-in but skips the second read of every idea. |
+| `INDAI_SECOND_MODEL` | Optional. The model for ChatGPT's part, default `gpt-6.1-sol`. |
+| `INDAI_RESEARCH_EFFORT`, `INDAI_RESEARCH_EFFORT_DEEP` | Optional. Perplexity's effort level for a fast idea (default `fast`) and a deep one (default `low`). |
 | `INDAI_PASSCODE` | Set an owner-chosen secret in Edge Function Secrets, then enter it in the original headset's settings for signed-out access to private memory. |
 | `INDAI_DAILY_TOKEN_BUDGET` | Optional override for the default 250,000-token New York calendar day. |
 | `INDAI_STT_PROVIDER=deepgram`, `DEEPGRAM_API_KEY` | Enable the optional server transcription adapter after selecting the provider. |
