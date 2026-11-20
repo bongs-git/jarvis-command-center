@@ -17,6 +17,7 @@ export const createAtlas = (globalThis as Any).createAtlas as (kb: unknown) => A
 const TRENDS = ["above", "below"];
 const VOLS: Record<string, string> = { low: "low", l: "low", mid: "mid", middle: "mid", m: "mid", high: "high", h: "high" };
 const HORIZONS = [1, 5, 20];
+export const SCAN_MOST = 400;   // the most patterns one scan reads
 const bad = (message: string) => new HttpError(400, "bad_request", message);
 const text = (v: unknown, max: number) => typeof v === "string" && v.trim() && v.length <= max ? v.trim() : null;
 const round = (v: unknown, places: number) => typeof v === "number" && Number.isFinite(v) ? Number(v.toFixed(places)) : null;
@@ -79,10 +80,14 @@ function scanOne(atlas: Any, p: Any, intraday: boolean) {
 // The answer to one request, given the engine. No network and no clock: the checks call this directly.
 export function atlasAnswer(atlas: Any, b: Any, version: string | null = null): Record<string, unknown> {
   if (b.op === "scan") {
-    if (!Array.isArray(b.patterns) || !b.patterns.length || b.patterns.length > 40) throw bad("patterns is a list of 1 to 40 patterns.");
+    if (!Array.isArray(b.patterns) || !b.patterns.length) throw bad("patterns is a list of patterns.");
+    // A capture over a whole session can hold well over a hundred patterns. A long list is not refused (at 40 it
+    // was, and the capture then showed no atlas numbers at all): the newest SCAN_MOST are read, and the answer says so.
+    const most = b.patterns.length > SCAN_MOST, list = most ? b.patterns.slice(-SCAN_MOST) : b.patterns;
     return {
-      reads: b.patterns.map((p: Any) => scanOne(atlas, p, b.intraday === true)),
-      note: "Each read stands alone. Names that fire on the same candle count as one event, and the atlas has no number for a combination it did not test.",
+      reads: list.map((p: Any) => scanOne(atlas, p, b.intraday === true)),
+      note: "Each read stands alone. Names that fire on the same candle count as one event, and the atlas has no number for a combination it did not test." + (most ? ` Only the last ${SCAN_MOST} of the ${b.patterns.length} patterns sent were read.` : ""),
+      ...(most ? { truncated: true } : {}),
       version,
     };
   }

@@ -80,10 +80,14 @@ Deno.test("scan: too few cases is GREY, and a missing cell falls back to the rul
   assert.deepEqual([thin.light, thin.n], ["GREY", 9]);
 });
 
-Deno.test("scan: one read per pattern, 1 to 40 of them", () => {
+Deno.test("scan: one read per pattern; a long list is read from its newest end, never refused", () => {
   assert.equal(scan(Array.from({ length: 40 }, () => hammer())).reads.length, 40);
+  const day = scan(Array.from({ length: 173 }, () => hammer()));   // a box over a whole session of one-minute candles
+  assert.deepEqual([day.reads.length, day.truncated, /Only the last/.test(day.note)], [173, undefined, false]);
+  const huge = scan(Array.from({ length: 450 }, (_, i) => ({ ...hammer(), at: new Date(Date.UTC(2026, 10, 20, 14, 30) + i * 60_000).toISOString() })));
+  assert.deepEqual([huge.reads.length, huge.truncated, huge.reads[0].at, huge.reads.at(-1).at], [400, true, "2026-11-20T15:20:00.000Z", "2026-11-20T21:59:00.000Z"]);
+  assert.match(huge.note, /Only the last 400 of the 450 patterns sent were read\.$/);
   refused(() => scan([]), 400, "bad_request");
-  refused(() => scan(Array.from({ length: 41 }, () => hammer())), 400, "bad_request");
   refused(() => atlasAnswer(atlas, { op: "scan", patterns: "CDLHAMMER" }), 400, "bad_request");
 });
 
