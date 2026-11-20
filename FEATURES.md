@@ -71,4 +71,6 @@ Still to try on real devices: the on-device voice and microphone on an iPhone an
 | 2026-11-19 | TradingView bridge can send pre-market and after-hours candles (on by default; needs the script pasted again and its alert re-created) | tradingview/indai-bridge.pine |
 | 2026-11-20 | Back end: a bridge alert left on another timeframe can no longer replace one-minute candles | supabase/migrations/20261120052807_indai_tv_bars_keep_minute_candles.sql |
 | 2026-11-20 | Website: the main chart can be moved (drag), zoomed (pinch, wheel) and reset, and drawn on: trend lines and price levels that can be selected, moved, changed and deleted, kept on the device per ticker. Not in the Quest app | indai/js/chart.js, indai/js/draw.js (website repo) |
+| 2026-11-20 | Website: the price and time axes can be dragged to rescale; scrolling back shows earlier sessions from the stored bridge candles; TradingView's embedded chart can replace INDAI's in the panel. Not in the Quest app | indai/js/chart.js, indai/js/history.js, indai/js/views.js (website repo) |
+| 2026-11-20 | Back end: `indai-tv?bars=1&ticker=…&before=…` returns stored one-minute candles for one ticker, for scrolling a chart back | supabase/indai-tv/index.ts |
 
