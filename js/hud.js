@@ -90,6 +90,7 @@ export class Panel {
     this.pressed = null;
     this.headerH = header ? 60 : 0;
     this.dirty = true;
+    this.resizable = true;  // set false for focus cards and floating helpers
     this.flash = 0;         // alert flash intensity 0..1
     this.accent = C.line;
   }
@@ -139,6 +140,13 @@ export class Panel {
       rrect(ctx, W / 2 - 30, 4, 60, 5, 2.5); ctx.fill();
     }
     this.drawBody(ctx, { x: 24, y: this.headerH + 14, w: W - 48, h: H - this.headerH - 34 });
+    // resize grip in the bottom-right corner: pinch (or trigger) and drag it to make the window bigger or smaller
+    if (this.resizable) {
+      const hot = this.hover && this.inCorner(this.hover);
+      ctx.strokeStyle = hot ? C.gold : 'rgba(255,255,255,0.22)'; ctx.lineWidth = hot ? 4 : 3; ctx.lineCap = 'round';
+      for (const k of [14, 28, 42]) { ctx.beginPath(); ctx.moveTo(W - 10 - k, H - 10); ctx.lineTo(W - 10, H - 10 - k); ctx.stroke(); }
+      ctx.lineCap = 'butt';
+    }
     this.tex.needsUpdate = true;
     this.dirty = false;
   }
@@ -154,11 +162,13 @@ export class Panel {
     return null;
   }
   inHeader(px) { return this.header && px.y < this.headerH; }
+  inCorner(px) { return !!this.resizable && px.x > this.W - 70 && px.y > this.H - 70; }
   setHover(px) {
     const b = px ? this.buttonAt(px) : null;
     const id = b && !b.disabled ? b.id : null;
     const moved = !!px !== !!this.hover || (px && this.hover && (Math.abs(px.x - this.hover.x) > 4 || Math.abs(px.y - this.hover.y) > 4));
     if (id !== this.hoverBtn || (moved && this.wantsHoverRedraw)) this.dirty = true;
+    if (!!(px && this.inCorner(px)) !== !!(this.hover && this.inCorner(this.hover))) this.dirty = true;
     if (!!px !== !!this.hover) this.dirty = true;
     this.hoverBtn = id; this.hover = px;
   }

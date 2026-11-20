@@ -610,10 +610,11 @@ const panelMeshes = [];
 const maxAniso = renderer.capabilities.getMaxAnisotropy();
 for (const [id, p] of Object.entries(P)) {
   p.setAnisotropy(maxAniso); rig.add(p.mesh); panelMeshes.push(p.mesh);
-  if (FOCUS.includes(id)) { p.mesh.visible = false; p.mesh.renderOrder = 3; p.focus = true; p.solid = true; }
-  if (id === 'coach') { p.mesh.visible = false; p.mesh.renderOrder = 4; p.solid = true; p.floating = true; }
+  if (FOCUS.includes(id)) { p.mesh.visible = false; p.mesh.renderOrder = 3; p.focus = true; p.solid = true; p.resizable = false; }
+  if (id === 'coach') { p.mesh.visible = false; p.mesh.renderOrder = 4; p.solid = true; p.floating = true; p.resizable = false; }
 }
-const home = {};   // where each screen lives when not collapsed
+const home = {}, homeS = {};   // where each screen lives (and how big it is) when not collapsed
+const SCALE_MIN = 0.55, SCALE_MAX = 2.2;
 
 function placeDefault(id) {
   const [deg, dy] = LAYOUT[id];
@@ -640,8 +641,9 @@ function applyLayout() {
     const s = saved[id];
     if (s && Array.isArray(s.p) && Array.isArray(s.q)) { P[id].mesh.position.fromArray(s.p); P[id].mesh.quaternion.fromArray(s.q); }
     else placeDefault(id);
-    P[id].mesh.scale.setScalar(1);
-    home[id] = P[id].mesh.position.clone();
+    const sc = s && Number.isFinite(s.s) ? Math.max(SCALE_MIN, Math.min(SCALE_MAX, s.s)) : 1;
+    P[id].mesh.scale.setScalar(sc); P[id].maxed = null;
+    home[id] = P[id].mesh.position.clone(); homeS[id] = sc;
   }
   orb.position.set(0, BASE_Y + 0.64, -R);
 }
@@ -650,8 +652,9 @@ function persistLayout() {
   const out = {};
   for (const id of Object.keys(P)) {
     if (FOCUS.includes(id) || id === 'coach') continue;
-    out[id] = { p: P[id].mesh.position.toArray(), q: P[id].mesh.quaternion.toArray() };
-    home[id] = P[id].mesh.position.clone();
+    const m = P[id].mesh, mx = P[id].maxed;      // a maximised window is saved where it came from
+    out[id] = mx ? { p: mx.p.toArray(), q: mx.q.toArray(), s: mx.s } : { p: m.position.toArray(), q: m.quaternion.toArray(), s: m.scale.x };
+    home[id] = mx ? mx.p.clone() : m.position.clone(); homeS[id] = mx ? mx.s : m.scale.x;
   }
   saveLayout(out);
 }
@@ -660,14 +663,15 @@ applyLayout();
 
 // ------------------------------------------------------------------ focus cards + consolidate / restore
 const anims = new Map();
-function animate(mesh, { to = null, scale = 1, dur = 300, after = null }) {
-  anims.set(mesh, { p0: mesh.position.clone(), p1: to ? to.clone() : mesh.position.clone(), s0: mesh.scale.x, s1: scale, t0: performance.now(), dur, after });
+function animate(mesh, { to = null, scale = 1, quat = null, dur = 300, after = null }) {
+  anims.set(mesh, { p0: mesh.position.clone(), p1: to ? to.clone() : mesh.position.clone(), s0: mesh.scale.x, s1: scale, q0: mesh.quaternion.clone(), q1: quat ? quat.clone() : null, t0: performance.now(), dur, after });
 }
 function stepAnims(now) {
   for (const [mesh, a] of anims) {
     const t = Math.min(1, (now - a.t0) / a.dur), e = 1 - Math.pow(1 - t, 3);
     mesh.position.lerpVectors(a.p0, a.p1, e);
     mesh.scale.setScalar(a.s0 + (a.s1 - a.s0) * e);
+    if (a.q1) mesh.quaternion.slerpQuaternions(a.q0, a.q1, e);
     if (t >= 1) { anims.delete(mesh); a.after && a.after(); }
   }
 }
@@ -695,7 +699,8 @@ app.consolidate = () => {
   const target = new THREE.Vector3(0, BASE_Y + 0.075, -RF - 0.05);
   for (const id of COLLAPSIBLE) {
     const m = P[id].mesh;
-    home[id] = home[id] || m.position.clone();
+    if (P[id].maxed) unmax(P[id], { instant: true });
+    home[id] = home[id] || m.position.clone(); homeS[id] = homeS[id] || m.scale.x;
     animate(m, { to: target, scale: 0.05, dur: 380, after: () => { m.visible = false; } });
   }
   setTimeout(() => { if (app.consolidated && !app.focus) app.openFocus('summary'); }, 200);
@@ -709,10 +714,30 @@ app.restoreAll = () => {
   for (const id of COLLAPSIBLE) {
     const m = P[id].mesh;
     m.visible = true;
-    animate(m, { to: home[id], scale: 1, dur: 380 });
+    animate(m, { to: home[id], scale: homeS[id] || 1, dur: 380 });
     P[id].dirty = true;
   }
   app.markDirty('dock');
+};
+
+// ------------------------------------------------------------------ maximise a window (double-pinch its top bar)
+function unmax(panel, { instant = false } = {}) {
+  const mx = panel.maxed; if (!mx) return;
+  panel.maxed = null;
+  if (instant) { panel.mesh.position.copy(mx.p); panel.mesh.quaternion.copy(mx.q); panel.mesh.scale.setScalar(mx.s); }
+  else animate(panel.mesh, { to: mx.p, scale: mx.s, quat: mx.q, dur: 300 });
+  panel.mesh.renderOrder = mx.order;
+}
+app.toggleMax = (panel) => {
+  if (!panel || panel.focus || panel.floating || app.consolidated) return;
+  if (panel.maxed) { unmax(panel); return; }
+  for (const p of Object.values(P)) if (p.maxed) unmax(p);
+  const m = panel.mesh;
+  panel.maxed = { p: m.position.clone(), q: m.quaternion.clone(), s: m.scale.x, order: m.renderOrder };
+  const big = Math.max(1, Math.min(1.9, 1.75 / panel.w));    // about 1.75 m wide, never smaller than it is now
+  m.renderOrder = 5;
+  animate(m, { to: new THREE.Vector3(0, BASE_Y + 0.08, -R + 0.22), scale: Math.max(big, m.scale.x), quat: new THREE.Quaternion(), dur: 320 });
+  say(`${panel.title || 'Window'} is up front. Double-pinch its top bar again to put it back.`, 'info', { speak: false });
 };
 
 // ------------------------------------------------------------------ recenter
@@ -754,12 +779,28 @@ window.addEventListener('resize', () => { if (!app.inXR) { renderer.setSize(wind
 const ray = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 let mouseHoverPanel = null;
-function targets() { const t = panelMeshes.filter(m => m.visible && m.scale.x > 0.5); t.push(orbHit); return t; }
+function targets() { const t = panelMeshes.filter(m => m.visible && m.scale.x > 0.3); t.push(orbHit); return t; }
 function resolveHit(hit) {
   if (!hit) return null;
   if (hit.object.userData.orb) return { orb: true, point: hit.point, distance: hit.distance };
   const panel = hit.object.userData.panel;
   return { panel, px: panel.toPx(hit.uv), point: hit.point, distance: hit.distance };
+}
+const _plane = new THREE.Plane(), _n = new THREE.Vector3(), _hitW = new THREE.Vector3(), _loc = new THREE.Vector3();
+function panelPx(panel, r) {
+  const m = panel.mesh; m.updateMatrixWorld();
+  _n.set(0, 0, 1).applyQuaternion(m.getWorldQuaternion(_q2)); m.getWorldPosition(_hitW);
+  _plane.setFromNormalAndCoplanarPoint(_n, _hitW);
+  if (!r.intersectPlane(_plane, _hitW)) return null;
+  _loc.copy(_hitW); m.worldToLocal(_loc);
+  return { px: panel.toPx({ x: _loc.x / panel.w + 0.5, y: _loc.y / panel.h + 0.5 }), world: _hitW.clone() };
+}
+const _q2 = new THREE.Quaternion();
+function ndcRay(ev) {
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  return ray.ray;
 }
 function pick2D(ev) {
   const r = renderer.domElement.getBoundingClientRect();
@@ -778,23 +819,64 @@ function maybeCheckIn(xr) {
 }
 app.maybeCheckIn = maybeCheckIn;
 const pointers = new Map();
-let dragView = null, pinch = null;
+let dragView = null, pinch = null, chart2D = null, resize2D = null, move2D = null;
+const rayFor = (pt) => ndcRay({ clientX: pt.x, clientY: pt.y });
 renderer.domElement.addEventListener('pointerdown', (ev) => {
   if (app.inXR) return;
   firstGesture();
   renderer.domElement.setPointerCapture(ev.pointerId);
   pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
   if (pointers.size === 2) {
+    // two fingers on the chart zoom the chart; anywhere else they move the camera in and out
+    if (chart2D && chart2D.panel.pinchStart) {
+      const [pa, pb] = [...pointers.values()].map(pt => panelPx(chart2D.panel, rayFor(pt)));
+      if (pa && pb) { chart2D.panel.pinchStart(pa.px, pb.px); chart2D.pinch = true; return; }
+    }
     const [a, b] = [...pointers.values()];
-    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), dist: view.dist }; dragView = null; return;
+    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), dist: view.dist }; dragView = null; chart2D = null; return;
   }
   const h = pick2D(ev);
+  if (h && h.panel && !h.panel.buttonAt(h.px)) {
+    const panel = h.panel;
+    if (panel.inCorner(h.px)) {           // drag the corner grip to resize the window
+      const c = panel.mesh.getWorldPosition(new THREE.Vector3());
+      resize2D = { panel, c, r0: Math.max(0.05, c.distanceTo(h.point)), s0: panel.mesh.scale.x }; dragView = null; return;
+    }
+    if (panel.pointerDown && !panel.inHeader(h.px) && panel.pointerDown(h.px, { coarse: ev.pointerType !== 'mouse' })) { chart2D = { panel, id: ev.pointerId }; dragView = null; return; }
+    if (panel.inHeader(h.px) && !panel.focus) {   // drag a window by its top bar
+      const m = panel.mesh; m.getWorldPosition(_v);
+      move2D = { panel, dist: h.distance, offset: _v.clone().sub(h.point), moved: false, x: ev.clientX, y: ev.clientY, at: performance.now() };
+      dragView = null; return;
+    }
+  }
   dragView = { x: ev.clientX, y: ev.clientY, yaw: view.yaw, pitch: view.pitch, moved: false, hit: h };
   if (h && h.panel) { const b = h.panel.buttonAt(h.px); if (b && !b.disabled) { h.panel.pressed = b.id; h.panel.dirty = true; } }
 });
 renderer.domElement.addEventListener('pointermove', (ev) => {
   if (app.inXR) return;
   if (pointers.has(ev.pointerId)) pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (resize2D) {
+    const pp = panelPx(resize2D.panel, ndcRay(ev));
+    if (pp) { const sc = Math.max(SCALE_MIN, Math.min(SCALE_MAX, resize2D.s0 * resize2D.c.distanceTo(pp.world) / resize2D.r0)); resize2D.panel.mesh.scale.setScalar(sc); }
+    return;
+  }
+  if (move2D) {
+    if (Math.abs(ev.clientX - move2D.x) + Math.abs(ev.clientY - move2D.y) > 5) move2D.moved = true;
+    if (move2D.moved) {
+      const r = ndcRay(ev), target = r.origin.clone().addScaledVector(r.direction, move2D.dist).add(move2D.offset);
+      const m = move2D.panel.mesh; rig.worldToLocal(target); m.position.copy(target);
+      const camLocal = rig.worldToLocal(camera.position.clone());
+      m.lookAt(rig.localToWorld(new THREE.Vector3(camLocal.x, m.position.y, camLocal.z)));
+    }
+    return;
+  }
+  if (chart2D) {
+    if (chart2D.pinch && pointers.size === 2) {
+      const [pa, pb] = [...pointers.values()].map(pt => panelPx(chart2D.panel, rayFor(pt)));
+      if (pa && pb) chart2D.panel.pinchMove(pa.px, pb.px);
+    } else if (!chart2D.pinch && ev.pointerId === chart2D.id) { const pp = panelPx(chart2D.panel, ndcRay(ev)); if (pp) chart2D.panel.pointerMove(pp.px); }
+    return;
+  }
   if (pinch && pointers.size === 2) {
     const [a, b] = [...pointers.values()];
     const d = Math.hypot(a.x - b.x, a.y - b.y);
@@ -815,10 +897,32 @@ renderer.domElement.addEventListener('pointermove', (ev) => {
   const hp = h && h.panel ? h.panel : null;
   if (mouseHoverPanel && mouseHoverPanel !== hp) mouseHoverPanel.setHover(null);
   if (hp) { hp.setHover(h.px); mouseHoverPanel = hp; } else mouseHoverPanel = null;
-  renderer.domElement.style.cursor = (h && h.orb) || (hp && hp.buttonAt(h.px)) ? 'pointer' : 'grab';
+  renderer.domElement.style.cursor = (h && h.orb) || (hp && hp.buttonAt(h.px)) ? 'pointer'
+    : hp && hp.inCorner(h.px) ? 'nwse-resize' : hp && hp.inHeader(h.px) && !hp.focus ? 'move' : hp && hp.zone && hp.zone(h.px) ? 'crosshair' : 'grab';
 });
+let lastHeader2D = null;
 const endPointer = (ev) => {
   pointers.delete(ev.pointerId);
+  if (resize2D) { resize2D = null; persistLayout(); app.tutorialEvent('resize'); return; }
+  if (move2D) {
+    const m = move2D; move2D = null;
+    if (m.moved) persistLayout();
+    else { // two quick clicks on a top bar bring that window up front (and back)
+      const now = performance.now();
+      if (lastHeader2D && lastHeader2D.panel === m.panel && now - lastHeader2D.t < 450) { lastHeader2D = null; app.toggleMax(m.panel); }
+      else lastHeader2D = { panel: m.panel, t: now };
+    }
+    return;
+  }
+  if (chart2D) {
+    const c = chart2D;
+    if (c.pinch) { if (pointers.size < 2) { c.panel.pinchEnd(); chart2D = null; } return; }
+    if (ev.pointerId !== c.id) return;
+    chart2D = null;
+    const pp = panelPx(c.panel, ndcRay(ev));
+    c.panel.pointerUp(pp ? pp.px : null, ev.type !== 'pointerup');
+    return;
+  }
   if (pinch) { if (pointers.size < 2) pinch = null; return; }
   if (!dragView) return;
   const d = dragView; dragView = null;
@@ -838,6 +942,8 @@ renderer.domElement.addEventListener('pointerleave', () => { if (mouseHoverPanel
 renderer.domElement.addEventListener('wheel', (ev) => {
   if (app.inXR) return;
   ev.preventDefault();
+  const h = pick2D(ev);   // over the chart: zoom or move the chart; anywhere else: move the camera in and out
+  if (h && h.panel && h.panel.wheel && h.panel.wheel(h.px, ev.deltaX * (ev.deltaMode === 1 ? 33 : 1), ev.deltaY * (ev.deltaMode === 1 ? 33 : 1))) return;
   view.dist = Math.max(-0.6, Math.min(3.5, view.dist + ev.deltaY * 0.0015)); updateView();
 }, { passive: false });
 // keyboard push-to-talk for desktop testing: hold the space bar
@@ -855,14 +961,14 @@ for (let i = 0; i < 2; i++) {
   ctrl.add(line);
   const cursor = new THREE.Mesh(cursorGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthTest: false, side: THREE.DoubleSide }));
   cursor.renderOrder = 10; cursor.visible = false; scene.add(cursor);
-  const ptr = { i, ctrl, line, cursor, source: null, hit: null, press: null, drag: null, hoverPanel: null, talkBtn: false, talkAt: 0 };
+  const ptr = { i, ctrl, line, cursor, source: null, hit: null, press: null, drag: null, chart: null, resize: null, hold: null, hoverPanel: null, talkBtn: false, talkAt: 0, lastT: 0 };
   xrPointers.push(ptr);
   ctrl.addEventListener('connected', (e) => { ptr.source = e.data; line.visible = true; if (!e.data.hand) app.tutorialEvent?.('controllers'); });
-  ctrl.addEventListener('disconnected', () => { ptr.source = null; line.visible = false; cursor.visible = false; endDrag(ptr); if (ptr.hoverPanel) ptr.hoverPanel.setHover(null); ptr.hoverPanel = null; });
+  ctrl.addEventListener('disconnected', () => { endAny(ptr, true); ptr.source = null; line.visible = false; cursor.visible = false; if (ptr.hoverPanel) ptr.hoverPanel.setHover(null); ptr.hoverPanel = null; });
   ctrl.addEventListener('selectstart', () => onPress(ptr, false));
   ctrl.addEventListener('selectend', () => onRelease(ptr));
   ctrl.addEventListener('squeezestart', () => onPress(ptr, true));
-  ctrl.addEventListener('squeezeend', () => endDrag(ptr));
+  ctrl.addEventListener('squeezeend', () => endAny(ptr));
   scene.add(ctrl);
   const hand = renderer.xr.getHand(i);
   scene.add(hand);
@@ -904,7 +1010,7 @@ function updateHandVisuals() {
     pos.needsUpdate = true;
     // colour shows what INDAI sees: violet = pinch, gold = primed for a gesture, green = it fired
     const side = src.handedness === 'left' ? 'left' : 'right', st = gestures.state, pose = st[side];
-    const armed = st.armed && (st.armed === 'wide' || st.armed === 'close' || st.armed === 'fist-' + side);
+    const armed = (st.armed && (st.armed === 'wide' || st.armed === 'close' || st.armed === 'fist-' + side)) || (palmTalk.side === side && palmTalk.charge > 0.15);
     const col = performance.now() - hv.firedAt < 450 ? HAND_COL.fired : armed ? HAND_COL.armed : pose === 'pinch' ? HAND_COL.pinch : HAND_COL.idle;
     hv.mat.color.setHex(col); hv.lineMat.color.setHex(col);
     const pm = app.handInfo && app.handInfo.palms && app.handInfo.palms[side];
@@ -918,23 +1024,82 @@ function castXR(ptr) {
   ray.setFromXRController(ptr.ctrl);
   return resolveHit(ray.intersectObjects(targets(), false)[0]);
 }
+// Two hands on one window stretch it; two hands on the chart zoom it.
+app.stretch = null; app.chartPinch = null;
+let lastHeaderTap = null;
+function rayPoint(ptr, dist) { ray.setFromXRController(ptr.ctrl); return ray.ray.origin.clone().addScaledVector(ray.ray.direction, dist); }
+function startStretch(a, b, panel, da, db) {
+  const pa = rayPoint(a, da), pb = rayPoint(b, db), m = panel.mesh;
+  const mid = pa.clone().add(pb).multiplyScalar(0.5), c = m.getWorldPosition(new THREE.Vector3());
+  app.stretch = { panel, a, b, da, db, d0: Math.max(0.05, pa.distanceTo(pb)), s0: m.scale.x, off: c.sub(mid) };
+  a.drag = null; a.hold = null; b.hold = null;
+  haptic(a, 0.4, 25); haptic(b, 0.4, 25);
+}
+function endStretch() {
+  const st = app.stretch; if (!st) return;
+  app.stretch = null;
+  if (!st.panel.focus && !st.panel.floating) persistLayout();
+  app.tutorialEvent('resize');
+}
+function endChartPinch() { const cp = app.chartPinch; if (!cp) return; app.chartPinch = null; cp.panel.pinchEnd(); cp.a.chart = null; cp.b.chart = null; }
+// Release whatever this hand or controller was doing.
+function endAny(ptr, cancelled = false) {
+  if (app.stretch && (app.stretch.a === ptr || app.stretch.b === ptr)) { endStretch(); return true; }
+  if (app.chartPinch && (app.chartPinch.a === ptr || app.chartPinch.b === ptr)) { endChartPinch(); return true; }
+  if (ptr.resize) { ptr.resize = null; persistLayout(); app.tutorialEvent('resize'); return true; }
+  if (ptr.chart) {
+    const panel = ptr.chart.panel; ptr.chart = null;
+    ray.setFromXRController(ptr.ctrl); const pp = panelPx(panel, ray.ray);
+    panel.pointerUp(pp ? pp.px : null, cancelled);
+    return true;
+  }
+  if (ptr.hold) { ptr.hold = null; return true; }
+  if (ptr.drag) { endDrag(ptr); return true; }
+  return false;
+}
 function onPress(ptr, isSqueeze) {
   if (ptr.source && ptr.source.hand && !isSqueeze) app.tutorialEvent('pinch');
   const h = ptr.hit;
   if (!h) return;
   if (h.orb) { if (!isSqueeze) { app.tutorialEvent('talk'); app.talk(); haptic(ptr, 0.5, 30); } return; }
-  const b = isSqueeze ? null : h.panel.buttonAt(h.px);
-  if (b && !b.disabled) { ptr.press = { panel: h.panel, id: b.id }; h.panel.pressed = b.id; h.panel.dirty = true; haptic(ptr, 0.3, 20); return; }
-  if (isSqueeze || h.panel.inHeader(h.px)) {
-    const m = h.panel.mesh;
+  const panel = h.panel;
+  // the other hand already holds this window: pull them apart to make it bigger, together to make it smaller
+  const holder = !app.stretch && xrPointers.find(q => q !== ptr && ((q.drag && q.drag.panel === panel) || q.hold === panel));
+  if (holder && !panel.focus) { startStretch(holder, ptr, panel, holder.drag ? holder.drag.dist : holder.holdDist, h.distance); return; }
+  // the other hand is on the chart too: zoom with both
+  const onChart = !app.chartPinch && !isSqueeze && panel.pinchStart && xrPointers.find(q => q !== ptr && q.chart && q.chart.panel === panel);
+  if (onChart && panel.zone(h.px) === 'plot') {
+    ray.setFromXRController(onChart.ctrl); const pa = panelPx(panel, ray.ray);
+    if (pa) { panel.pinchStart(pa.px, h.px); ptr.chart = { panel }; app.chartPinch = { panel, a: onChart, b: ptr }; haptic(ptr, 0.3, 20); return; }
+  }
+  const b = isSqueeze ? null : panel.buttonAt(h.px);
+  if (b && !b.disabled) { ptr.press = { panel, id: b.id }; panel.pressed = b.id; panel.dirty = true; haptic(ptr, 0.3, 20); return; }
+  if (panel.inCorner(h.px)) {            // the corner grip: drag it to resize
+    const c = panel.mesh.getWorldPosition(new THREE.Vector3());
+    ptr.resize = { panel, c, r0: Math.max(0.05, c.distanceTo(h.point)), s0: panel.mesh.scale.x };
+    haptic(ptr, 0.4, 25); return;
+  }
+  if (!isSqueeze && panel.inHeader(h.px)) {   // two quick pinches on a top bar: bring that window up front (and back)
+    const now = performance.now();
+    if (lastHeaderTap && lastHeaderTap.panel === panel && now - lastHeaderTap.t < 500) { lastHeaderTap = null; app.toggleMax(panel); app.tutorialEvent('maximize'); haptic(ptr, 0.6, 35); return; }
+    lastHeaderTap = { panel, t: now };
+  }
+  if (!isSqueeze && !panel.inHeader(h.px) && panel.pointerDown && panel.pointerDown(h.px, { coarse: true })) {
+    ptr.chart = { panel }; app.tutorialEvent('chart-down'); haptic(ptr, 0.25, 15); return;
+  }
+  if (isSqueeze || panel.inHeader(h.px)) {
+    const m = panel.mesh;
     m.getWorldPosition(_v);
-    ptr.drag = { panel: h.panel, dist: h.distance, offset: _v.clone().sub(h.point) };
+    ptr.drag = { panel, dist: h.distance, offset: _v.clone().sub(h.point) };
     app.tutorialEvent('drag');
     haptic(ptr, 0.5, 30);
+    return;
   }
+  // a pinch on an empty part of a window holds it, so the other hand can join in and stretch it
+  if (!panel.focus) { ptr.hold = panel; ptr.holdDist = h.distance; }
 }
 function onRelease(ptr) {
-  if (ptr.drag) { endDrag(ptr); return; }
+  if (endAny(ptr)) return;
   const p = ptr.press; ptr.press = null;
   if (!p) return;
   p.panel.pressed = null; p.panel.dirty = true;
@@ -952,16 +1117,58 @@ function endDrag(ptr) {
   if (!wasFocus) persistLayout();
 }
 const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _head = new THREE.Vector3();
+function faceHead(m) { const headLocal = rig.worldToLocal(_head.clone()); m.lookAt(rig.localToWorld(new THREE.Vector3(headLocal.x, m.position.y, headLocal.z))); }
 function updateXRPointers() {
   renderer.xr.getCamera().getWorldPosition(_head);
+  const now = performance.now();
+  // two hands stretching one window
+  const st = app.stretch;
+  if (st) {
+    if (!st.a.source || !st.b.source) endStretch();
+    else {
+      const pa = rayPoint(st.a, st.da), pb = rayPoint(st.b, st.db), m = st.panel.mesh;
+      const sc = Math.max(SCALE_MIN, Math.min(SCALE_MAX, st.s0 * pa.distanceTo(pb) / st.d0));
+      m.scale.setScalar(sc);
+      if (!st.panel.focus) { const target = pa.add(pb).multiplyScalar(0.5).add(st.off); rig.worldToLocal(target); m.position.copy(target); faceHead(m); }
+    }
+  }
+  // two hands zooming the chart
+  const cp = app.chartPinch;
+  if (cp) {
+    ray.setFromXRController(cp.a.ctrl); const pa = panelPx(cp.panel, ray.ray);
+    ray.setFromXRController(cp.b.ctrl); const pb = panelPx(cp.panel, ray.ray);
+    if (pa && pb) cp.panel.pinchMove(pa.px, pb.px);
+  }
   for (const ptr of xrPointers) {
     if (!ptr.source) continue;
+    const dt = ptr.lastT ? Math.min(0.1, (now - ptr.lastT) / 1000) : 0; ptr.lastT = now;
     // A / X held = push-to-talk (controllers only)
     const gp = ptr.source.gamepad;
     const pressed = !!(gp && !ptr.source.hand && gp.buttons && gp.buttons[4] && gp.buttons[4].pressed);
-    if (pressed && !ptr.talkBtn) { ptr.talkAt = performance.now(); if (!app.indai.listening) { app.talk(); haptic(ptr, 0.4, 30); } }
-    if (!pressed && ptr.talkBtn && performance.now() - ptr.talkAt > 450 && app.indai.voice.state.listening) app.indai.voice.stop();
+    if (pressed && !ptr.talkBtn) { ptr.talkAt = now; if (!app.indai.listening) { app.talk(); haptic(ptr, 0.4, 30); } }
+    if (!pressed && ptr.talkBtn && now - ptr.talkAt > 450 && app.indai.voice.state.listening) app.indai.voice.stop();
     ptr.talkBtn = pressed;
+    if (st && (st.a === ptr || st.b === ptr)) { ptr.cursor.visible = false; continue; }
+    if (cp && (cp.a === ptr || cp.b === ptr)) continue;
+    if (ptr.resize) {
+      ray.setFromXRController(ptr.ctrl);
+      const pp = panelPx(ptr.resize.panel, ray.ray);
+      if (pp) {
+        ptr.resize.panel.mesh.scale.setScalar(Math.max(SCALE_MIN, Math.min(SCALE_MAX, ptr.resize.s0 * ptr.resize.c.distanceTo(pp.world) / ptr.resize.r0)));
+        ptr.cursor.visible = true; ptr.cursor.position.copy(pp.world); ptr.line.scale.z = pp.world.distanceTo(ray.ray.origin);
+      }
+      continue;
+    }
+    if (ptr.chart) {
+      ray.setFromXRController(ptr.ctrl);
+      const pp = panelPx(ptr.chart.panel, ray.ray);
+      if (pp) {
+        ptr.chart.panel.pointerMove(pp.px);
+        ptr.cursor.visible = true; ptr.cursor.position.copy(pp.world); ptr.chart.panel.mesh.getWorldQuaternion(ptr.cursor.quaternion); ptr.cursor.translateZ(0.002);
+        ptr.cursor.material.color.set(0xa99bf5); ptr.line.scale.z = pp.world.distanceTo(ray.ray.origin);
+      }
+      continue;
+    }
     if (ptr.drag) {
       ray.setFromXRController(ptr.ctrl);
       _o.copy(ray.ray.origin); _d.copy(ray.ray.direction);
@@ -969,8 +1176,7 @@ function updateXRPointers() {
       const m = ptr.drag.panel.mesh;
       rig.worldToLocal(target);
       m.position.copy(target);
-      const headLocal = rig.worldToLocal(_head.clone());
-      m.lookAt(rig.localToWorld(new THREE.Vector3(headLocal.x, m.position.y, headLocal.z)));
+      faceHead(m);
       ptr.cursor.visible = false;
       ptr.line.scale.z = ptr.drag.dist;
       continue;
@@ -987,8 +1193,13 @@ function updateXRPointers() {
       ptr.cursor.translateZ(0.002);
       ptr.line.scale.z = h.distance;
       if (h.orb) app.tutorialEvent('orbHover');
-      const overBtn = h.orb || hp.buttonAt(h.px) || hp.inHeader(h.px);
+      const overBtn = h.orb || hp.buttonAt(h.px) || hp.inHeader(h.px) || hp.inCorner(h.px);
       ptr.cursor.material.color.set(overBtn ? 0xdcbf6e : 0xffffff);
+      // thumbstick on the chart: left/right moves through the day, up/down zooms
+      if (hp && hp.stick && gp && !ptr.source.hand && gp.axes && gp.axes.length >= 4 && hp.zone(h.px)) {
+        const ax = gp.axes[2] || 0, ay = gp.axes[3] || 0;
+        if (Math.abs(ax) > 0.15 || Math.abs(ay) > 0.15) hp.stick(ax, ay, h.px, dt);
+      }
     } else {
       ptr.cursor.visible = false;
       ptr.line.scale.z = 3;
@@ -1017,6 +1228,37 @@ function symbolUnder(ptr) {
   if (h.panel.id === 'deep' && app.deep) return app.deep.sym;
   return null;
 }
+// Palm to talk: open your hand and turn the palm toward your face for a moment, and INDAI starts listening.
+// (Pinching in that pose is Meta's own menu, so this one is a held open hand, no pinch.)
+let twoHandQuietUntil = 0;
+const palmTalk = { since: 0, armed: true, offAt: 0, side: null };
+function palmToTalk(now, poses) {
+  renderer.xr.getCamera().getWorldPosition(_head);
+  let facing = null;
+  for (const side of ['left', 'right']) {
+    const p = poses[side], pose = gestures.state[side] || (p && p.pose);
+    if (!p || !(pose === 'open' || pose === 'spread')) continue;
+    const sg = side === 'right' ? 1 : -1;      // out of the palm, for each hand (index and pinky knuckles mirror)
+    const nx = p.normal.x * sg, ny = p.normal.y * sg, nz = p.normal.z * sg;
+    const tx = _head.x - p.palm.x, ty = _head.y - p.palm.y, tz = _head.z - p.palm.z, d = Math.hypot(tx, ty, tz);
+    if (d < 0.12 || d > 0.6) continue;
+    if ((nx * tx + ny * ty + nz * tz) / d > 0.8) facing = side;
+  }
+  const busy = xrPointers.some(q => q.drag || q.chart || q.resize || q.press) || app.stretch;
+  if (facing && palmTalk.armed && !busy) {
+    if (!palmTalk.since) palmTalk.since = now;
+    if (now - palmTalk.since > 650) {
+      palmTalk.armed = false; palmTalk.since = 0;
+      const vs = app.indai.voice.state;
+      if (!vs.listening && !vs.transcribing) { flashHands(); app.tutorialEvent('palm'); app.talk(); }
+    }
+  } else if (!facing) {
+    palmTalk.since = 0;
+    if (!palmTalk.armed) { if (!palmTalk.offAt) palmTalk.offAt = now; if (now - palmTalk.offAt > 400) { palmTalk.armed = true; palmTalk.offAt = 0; } } else palmTalk.offAt = 0;
+  }
+  palmTalk.side = facing;
+  palmTalk.charge = palmTalk.since ? Math.min(1, (now - palmTalk.since) / 650) : 0;
+}
 function updateGestures(now) {
   const level = app.settings.gestures || 'normal';
   const poses = { left: null, right: null }, tgt = { left: null, right: null }, busy = { left: false, right: false };
@@ -1025,13 +1267,17 @@ function updateGestures(now) {
     const hand = renderer.xr.getHand(ptr.i); const joints = {};
     for (const n of JOINTS) { const j = hand.joints && hand.joints[n]; if (!j || !j.visible) break; j.getWorldPosition(_v); joints[n] = { x: _v.x, y: _v.y, z: _v.z }; }
     const side = src.handedness === 'left' ? 'left' : 'right';
-    poses[side] = handPose(joints); tgt[side] = symbolUnder(ptr); busy[side] = !!(ptr.drag || ptr.press);
+    poses[side] = handPose(joints); tgt[side] = symbolUnder(ptr); busy[side] = !!(ptr.drag || ptr.press || ptr.chart || ptr.resize || ptr.hold);
   }
   const t = app.tutorial, step = t && TUTORIAL[t.i].id;
   if (level !== 'off' || t) {
     gestures.level = GESTURE_LEVELS[level] ? level : 'normal';
-    gestures.update(now, poses, tgt, { busy, canConsolidate: !app.consolidated || step === 'consolidate', canExpand: !!app.consolidated || step === 'expand' });
+    // a two-hand stretch or chart zoom must not read as collapse / bring back, during it or just after
+    if (app.stretch || app.chartPinch) twoHandQuietUntil = now + 700;
+    const quiet = now < twoHandQuietUntil;
+    gestures.update(now, poses, tgt, { busy, canConsolidate: !quiet && (!app.consolidated || step === 'consolidate'), canExpand: !quiet && (!!app.consolidated || step === 'expand') });
   }
+  if (level !== 'off' || step === 'palm') palmToTalk(now, poses);
   // what the headset sees, for the hand dots and the gesture tutorial
   const L = poses.left, R = poses.right, st = gestures.state;
   const pm = (p) => p && { x: p.palm.x, y: p.palm.y, z: p.palm.z, nx: p.normal.x, ny: p.normal.y, nz: p.normal.z };
@@ -1059,12 +1305,18 @@ const TUTORIAL = [
   { id: 'hands', icon: 'hands', start: 'controllers', finish: 'hands', title: 'Use your hands', lines: ['Start: controllers in your hands.', 'Finish: set them down. Your hands show up as small dots.'] },
   { id: 'pinch', icon: 'pinch', finish: 'pinch', title: 'Point and pinch to click', lines: ['Start: point at any button with your index finger.', 'Finish: tap your thumb and index finger together. Keep your palm facing away.'] },
   { id: 'drag', icon: 'drag', start: 'drag', finish: 'dragEnd', title: 'Move a screen', lines: ['Start: point at the bar along the top of a screen, then pinch and hold.', 'Finish: move your hand, then open it to drop the screen.'] },
+  { id: 'resize', icon: 'resize', finish: 'resize', title: 'Resize a screen', lines: ['Start: pinch a screen with both hands (or pinch the grip in its bottom-right corner).', 'Finish: pull apart to make it bigger, push together to make it smaller.'] },
+  { id: 'maximize', icon: 'max', finish: 'maximize', title: 'Bring a screen up front', lines: ['Start: point at a screen’s top bar.', 'Finish: pinch twice quickly. Do it again to put it back.'] },
+  { id: 'chart', icon: 'pan', start: 'chart-down', finish: ['chart-pan', 'chart-zoom'], title: 'Move and zoom the chart', lines: ['Start: pinch on the candles and hold.', 'Finish: drag sideways to move through the day. Pinch with both hands and spread them to zoom in.'] },
+  { id: 'trend', icon: 'trend', start: 'chart-tool-line', finish: 'chart-line', title: 'Draw a trend line', lines: ['Start: pinch Draw on the chart, then Trend line.', 'Finish: pinch where the line starts and drag to where it ends.'] },
   { id: 'explode', icon: 'explode', finish: 'explode', title: 'Explode a ticker', lines: ['Start: point at a ticker in the watchlist, make a fist and hold it for a beat. Your hand turns gold.', 'Finish: burst your fingers wide open. Its deep dive opens.'] },
   { id: 'consolidate', icon: 'together', finish: 'consolidate', title: 'Collapse everything', lines: ['Start: open hands, palms facing each other, shoulder-width apart. Hold until they turn gold.', 'Finish: bring them together until they almost touch.'] },
   { id: 'expand', icon: 'apart', finish: 'expand', title: 'Bring the screens back', lines: ['Start: open hands close together. Hold until they turn gold.', 'Finish: pull them apart, wider than your shoulders.'] },
+  { id: 'palm', icon: 'palm', finish: 'palm', title: 'Palm to talk', lines: ['Start: open your hand and turn your palm toward your face.', 'Finish: hold it there a moment until it turns gold. INDAI starts listening. (Don’t pinch: that opens Meta’s menu.)'] },
   { id: 'talk', icon: 'orb', start: 'orbHover', finish: 'talk', title: 'Talk to INDAI', lines: ['Start: point at the glowing orb above the screens.', 'Finish: pinch, then say “brief me”.'] },
 ];
 app.tutorialSteps = TUTORIAL;
+app.chartEvent = (k) => app.tutorialEvent('chart-' + k);
 app.tutorial = null;
 app.startTutorial = () => {
   if (app.consolidated) app.restoreAll(); else if (app.focus) app.closeFocus();
@@ -1074,7 +1326,7 @@ app.startTutorial = () => {
   const first = TUTORIAL[app.tutorial.i];
   if (!app.inXR) say('Gesture tutorial. Each card shows where a gesture starts and where it finishes. The gestures need the headset with hand tracking, so here you can read through them. Tap Next to go on.', 'info');
   else if (handsUp) say(`Gesture tutorial. I can already see your hands, so let's start with clicking. ${first.lines.join(' ')}`, 'info');
-  else say(`Gesture tutorial, seven quick moves. Each card shows where the gesture starts and where it finishes. ${first.lines.join(' ')}`, 'info');
+  else say(`Gesture tutorial, ${TUTORIAL.length} quick moves. Each card shows where the gesture starts and where it finishes. ${first.lines.join(' ')}`, 'info');
 };
 app.endTutorial = (finished = false, { speak = true } = {}) => {
   app.tutorial = null; P.coach.mesh.visible = false;
@@ -1091,8 +1343,9 @@ app.tutorialGo = (dir) => {
 app.tutorialEvent = (id) => {
   const t = app.tutorial; if (!t || t.doneAt) return;
   const st = TUTORIAL[t.i]; if (!st) return;
-  if (st.start === id && !t.started) { t.started = true; P.coach.dirty = true; return; }
-  if (st.finish !== id) return;
+  const is = (k) => Array.isArray(k) ? k.includes(id) : k === id;
+  if (is(st.start) && !t.started) { t.started = true; P.coach.dirty = true; return; }
+  if (!is(st.finish)) return;
   t.started = true; t.doneAt = performance.now(); P.coach.dirty = true;
   const at = t.i, next = TUTORIAL[t.i + 1];
   // the last step opens the mic, so stay quiet there and write the wrap-up instead of saying it
