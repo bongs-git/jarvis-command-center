@@ -83,6 +83,10 @@ Request:
   answer.
 - Done when: `days=6000` for SPY returns more than 2,500 rows.
 
+**Deployed November 20, 2026** in `indai-market` version 11, not yet seen working: daily candles come from CBOE,
+which has refused INDAI's servers since the evening of November 19 (`supabase/OPERATIONS.md`, "When CBOE refuses the
+backend"). The check above waits for CBOE to answer again or for another source of daily candles.
+
 ### CAP-4 · Keep the bridge's minute candles · P2
 The website now keeps 45 days of one-minute candles on the device, but a new device or a cleared browser starts from
 the server. Check that nothing prunes `indai_tv_bars`. If a job does, keep at least 45 days.
