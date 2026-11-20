@@ -109,6 +109,25 @@ In the function's log line an atlas request shows as mode `unknown`: the list of
 
 Checks: `supabase/checks/atlas_test.ts` uses a stand-in knowledge base with made-up numbers; run it with `ATLAS_KB=/path/atlas_kb.json` to also check the book's published example against the real file. The brain's bundle is now `indai-brain/index.ts`, `atlas.ts`, `history.ts`, `memory.ts`, `profile.ts`, `stream.ts`, `super.ts`, `_shared/http.ts`, `budget.ts`, `db.ts`, `auth.ts` and `_shared/atlas/indai_atlas_engine.js`, with `verify_jwt` off.
 
+## Thinking an idea through, and asking without the app
+
+`indai-brain` version 21, live November 20, 2026 at 5:30 PM New York time (read back, identical to the repository), with the table `public.indai_last_idea` (service role only; one row per account).
+
+**The idea is kept.** Every `mode:"trade"` request from a known account writes that row before the research starts: the trader's words, the parsed idea, and the numbers the app sent as `context` (up to 24,000 characters). When the verdict comes back 200 it is added to the same row. A failed verdict leaves the row with the numbers and no verdict. The next idea replaces it.
+
+**A question about it is reasoned.** In `talk`, the row is read alongside memory. `aboutIdea` (`indai-brain/idea.ts`) decides: within 30 minutes of the idea, or of the last question about it, every question counts; after that, for 8 hours, only one that names the idea's ticker or uses an idea word (strike, stop, target, break-even, what if, odds, size, exit, roll, calls, puts, green, amber, red and the like). Such a question goes to the verdict model (`claude-sonnet-5-5`) with 1,500 tokens and a system prompt that carries the idea, the numbers and her verdict, and tells her to answer first, do the arithmetic, say what would change her read, and never to tell him to buy or sell. Everything else keeps the quick model and 700 tokens, exactly as before. If the table cannot be read or written, verdicts and conversation carry on without it. To see it working: the answer carries `about:"idea"` and `model:"claude-sonnet-5-5"`; `select at, talked_at, question, verdict is not null as has_verdict from public.indai_last_idea` shows what she is holding.
+
+**Asking with no app on screen.** A `talk` request that brings no `context` gets one from the server: what the clock says about the market (holidays are not known), and live prices for the tickers named in the question (company names such as Tesla are understood), the idea's ticker, and SPY, QQQ and IWM. The prices come from `indai-market`, asked with the caller's own passcode or sign-in, so the owner gets his Schwab quotes. With `format:"text"` the answer is her spoken words as plain text and nothing else, and she is told there is no screen. This is what a Siri shortcut calls:
+
+1. Shortcuts app, new shortcut named **Ask INDAI**.
+2. Action **Dictate Text**.
+3. Action **Get Contents of URL**: URL `https://zptjziewsfuvfcogrikz.supabase.co/functions/v1/indai-brain`, method POST, one header `x-indai-pass` holding his passcode, request body JSON with `mode` = `talk`, `format` = `text`, `session` = `siri`, `question` = the Dictated Text.
+4. Action **Speak Text** with the contents of the URL.
+
+"Hey Siri, Ask INDAI" then runs it. For the phrase "Hey INDAI" without "Siri": Settings, Accessibility, Vocal Shortcuts, set up a phrase that runs the shortcut (iOS 18 or later). These steps were written from how Shortcuts works and have not been run on his phone; whether dictation runs while the phone is locked, and whether Vocal Shortcuts listens while locked, are reported both ways and are to be tested there. The passcode sits inside the shortcut on his phone. Anyone who can speak to the locked phone can ask her a question and hear the answer; nothing can be bought or sold through this door (orders are a different function and need an approved device).
+
+Checks: `supabase/checks/idea_test.ts`, and `deno run -A supabase/checks/idea-wiring.ts "$PWD/supabase/indai-brain/index.ts"` runs the real function against stand-ins. Not yet seen with real requests: all of it. The brain's bundle is now thirteen files: the twelve listed under "The atlas" plus `indai-brain/idea.ts`.
+
 ## When CBOE refuses the backend
 
 On November 19 from about 17:25 ET, CBOE answered every request from the functions with 403 (quotes, intraday candles and option chains alike). `indai-market` version 10 keeps the apps supplied with prices and candles from the TradingView bridge in that case: when the CBOE request for a ticker fails, `snapshot` and `bars` answer that ticker from `indai_tv_bars` (`indai-market/bridge.ts`), marked `source: "TradingView bridge"`, `delay: 0`. While CBOE answers, nothing changes. During regular trading a bridge quote is only given if the newest stored candle is at most ten minutes old, so an old candle is never shown as the current price; outside regular trading the last stored candle is given with its own timestamp. Tickers the bridge does not send, and all option chains, still fail as before.
@@ -147,7 +166,7 @@ From version 11, `indai-brain` can answer a researched request (`trade` and `cha
 
 Checked against Perplexity's documentation on November 20, 2026: the Sonar chat-completions API ended on September 27, 2026 and the Agent API (`POST https://api.perplexity.ai/v1/agent`, the same shape as OpenAI's `POST /v1/responses`) replaces it; its catalog includes OpenAI, Anthropic and Google models; API credits are bought in advance at console.perplexity.ai and are separate from a Pro or Max subscription.
 
-Not yet run against the real providers: no key was set when version 11 was deployed, so the provider calls have run only against stand-ins (`supabase/checks/super_test.ts`, 16 tests). After the owner saves a key, read the first researched answer's `brains`, or the log line, before trusting it. If Perplexity refuses the research request's shape, the function already retries in the plain form (`model: "perplexity/sonar"` with the `web_search` tool).
+The owner saved `PERPLEXITY_API_KEY` on November 20 between 4:25 and 5:30 PM New York time: `GET indai-brain` showed `perplexity:true, chatgpt:true` at 5:31 PM. Not yet run against the real providers: no researched answer has been asked for since, so the provider calls have run only against stand-ins (`supabase/checks/super_test.ts`, 16 tests). After the owner saves a key, read the first researched answer's `brains`, or the log line, before trusting it. If Perplexity refuses the research request's shape, the function already retries in the plain form (`model: "perplexity/sonar"` with the `web_search` tool).
 
 ## Owner-controlled configuration
 
