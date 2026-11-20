@@ -73,6 +73,8 @@ Request:
   15-minute capture carries the daily-numbers warning.
 
 ### CAP-3 · Years of daily candles · P1
+**The `days` part is written in this pull request** (`supabase/indai-market/index.ts`, five lines): review it, deploy
+`indai-market`, and check the result. The Twelve Data fallback is still to do.
 - `indai-market?kind=daily&symbols=SPY&days=6000`: honour `days`, from 1 to 6000, with a default of 260 so the Quest
   app is unchanged. Today it always returns the last 260. Cache per symbol, not per `days`, and slice the result.
 - If CBOE refuses or sends a short history, and the owner has saved a Twelve Data key on the server, use
