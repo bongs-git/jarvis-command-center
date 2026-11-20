@@ -28,6 +28,8 @@ contract rows. Never send the knowledge base to the browser.
   asks, so nothing breaks, and nothing lights up either.
 - Done when: GET lists `modes`, and `{mode:"nonsense"}` returns 400 without a model call.
 
+**Done November 20, 2026** in `indai-brain` version 12.
+
 ### CAP-1 · `mode:"atlas", op:"scan"`: numbers for the patterns found in a capture · P0
 Builds on ATLAS-5 (the same reader and engine, with no model call, scoped to the owner).
 
@@ -53,6 +55,11 @@ Response:
 - When `intraday` is true, `line` says the percentages were measured on daily stock candles.
 - Done when: the request above returns the hammer's below/high/5 cell (0.573 / 0.543 / 1101), and an untested code
   returns no numbers.
+
+**Done November 20, 2026** in `indai-brain` version 12. The request above returns 0.5731 / 0.5428 / 1101 with
+`light:"RED"`, not the `AMBER` of the example: the earlier years went the other way in that cell, which is also the
+book's own grade for it (ATLAS-5 says the same). Each read also carries `name`, `side`, `lift`, `net`, `horizon` and
+`scope` (`cell` or `overall`).
 
 ### CAP-2 · `mode:"capture"`: INDAI reads the picture · P1
 Request:

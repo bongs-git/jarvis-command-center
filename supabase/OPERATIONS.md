@@ -69,6 +69,18 @@ The same answer now carries a `cursor`. An app that sends it back as `seen` gets
 
 To see what is arriving: `select ticker, to_timestamp(t/1000), c, received_at from public.indai_tv_live order by ticker`. No rows younger than a minute during trading hours means the alert on TradingView is still the old one (an alert keeps the script it was created with), sits on a chart that is not one-minute, or has been stopped. Checks: `supabase/checks/live_test.ts`, `supabase/checks/live-feed.sql` (disposable database). The endpoint's bundle is `indai-tv/index.ts`, `indai-tv/live.ts` and `_shared/http.ts`, `auth.ts`, `db.ts`, with `verify_jwt` off.
 
+## The atlas (`mode:"atlas"`)
+
+The Market Pattern Atlas's knowledge base is the owner's private data. It lives in one row of `public.indai_atlas` (key `kb`), readable only by the service role, and nowhere in the repository; `atlas/load/README.md` is how it gets there. `indai-brain` version 12 answers questions from it with no model call (`indai-brain/atlas.ts`): it reads the row once per cold start, builds the engine (`_shared/atlas/indai_atlas_engine.js`, a copy of `atlas/indai_atlas_engine.js` that a check keeps identical), and returns the engine's answer to one question at a time. The whole knowledge base is never returned.
+
+Who is answered: the owner's passcode, or the owner's own sign-in. Any other signed-in account gets 403. Each request is counted in the `atlas` bucket of `indai_rate_events`, 600 an hour.
+
+To check it on the hosted project: `GET indai-brain` lists `atlas` in `modes`; `POST {mode:"atlas",op:"lookup",rule:"hammer",trend:"below",vol:"high",horizon:5}` with the passcode returns `result.cell.later` of 0.573 against 0.543 on 1,101 cases with `cellGrade:"RED"`; the same request without the passcode returns 401. `503 atlas_unavailable` means the row is missing: `select version, pg_size_pretty(pg_column_size(value)::bigint) from public.indai_atlas`. After loading a new revision, the running instances keep the old one until they restart; redeploy the function, or wait for it to go cold.
+
+In the function's log line an atlas request shows as mode `unknown`: the list of names the log knows is in `_shared/http.ts`, which all six functions bundle, and it was left alone so the other five still match the repository byte for byte. Every other accepted mode is in that list, so in the brain's log `unknown` means atlas. Add the name the next time `http.ts` changes and all six are deployed.
+
+Checks: `supabase/checks/atlas_test.ts` uses a stand-in knowledge base with made-up numbers; run it with `ATLAS_KB=/path/atlas_kb.json` to also check the book's published example against the real file. The brain's bundle is now `indai-brain/index.ts`, `atlas.ts`, `history.ts`, `memory.ts`, `profile.ts`, `stream.ts`, `super.ts`, `_shared/http.ts`, `budget.ts`, `db.ts`, `auth.ts` and `_shared/atlas/indai_atlas_engine.js`, with `verify_jwt` off.
+
 ## When CBOE refuses the backend
 
 On November 19 from about 17:25 ET, CBOE answered every request from the functions with 403 (quotes, intraday candles and option chains alike). `indai-market` version 10 keeps the apps supplied with prices and candles from the TradingView bridge in that case: when the CBOE request for a ticker fails, `snapshot` and `bars` answer that ticker from `indai_tv_bars` (`indai-market/bridge.ts`), marked `source: "TradingView bridge"`, `delay: 0`. While CBOE answers, nothing changes. During regular trading a bridge quote is only given if the newest stored candle is at most ten minutes old, so an old candle is never shown as the current price; outside regular trading the last stored candle is given with its own timestamp. Tickers the bridge does not send, and all option chains, still fail as before.
