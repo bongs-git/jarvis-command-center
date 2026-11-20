@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { HttpError } from "../_shared/http.ts";
-import { appRecognised, authorizeUrl, codeFrom, OAUTH, schwabApp, schwabSession, SIGN_IN_MS, type Tokens } from "../_shared/schwab.ts";
+import { appRecognised, authorizeUrl, codeFrom, OAUTH, schwabApp, schwabSession, SIGN_IN_MS, streamerInfo, type Tokens } from "../_shared/schwab.ts";
 import { chainAsks, chainFrom, dailyFrom, minutesFrom, quoteFrom } from "../indai-market/schwab.ts";
 
 // The owner's Schwab sign-in (supabase/_shared/schwab.ts) and the shapes Schwab's data is turned into
@@ -139,6 +139,31 @@ Deno.test("the app check tells a key Schwab does not know from one it does", asy
   assert.deepEqual(await ask(() => new Response("", { status: 503 })), { recognised: null, status: 503, error: null });
   assert.deepEqual(await appRecognised(APP, () => Promise.reject(new Error("network"))), { recognised: null, status: 0, error: null });
   assert.ok(sent.every((f) => f.grant_type === "refresh_token" && f.refresh_token === "indai-check-not-a-token"));
+});
+
+Deno.test("the live stream details come from Schwab's own answer, and only a Schwab address is passed on", async () => {
+  const info = { streamerSocketUrl: "wss://streamer-api.schwab.com/ws", schwabClientCustomerId: "c".repeat(64), schwabClientCorrelId: "11111111-2222-3333-4444-555555555555", schwabClientChannel: "N9", schwabClientFunctionId: "APIAPP" };
+  const seen: string[] = [];
+  const ask = (body: unknown, status = 200) => streamerInfo("access-1", (url, init) => { seen.push(url + " " + (init.headers as Record<string, string>).Authorization); return Promise.resolve(new Response(JSON.stringify(body), { status })); });
+  assert.deepEqual(await ask({ accounts: [{ accountNumber: "SECRET-ACCOUNT" }], streamerInfo: [info], offers: [] }), { socket: "wss://streamer-api.schwab.com/ws", customer: "c".repeat(64), correl: "11111111-2222-3333-4444-555555555555", channel: "N9", fn: "APIAPP" });
+  assert.deepEqual(seen, ["https://api.schwabapi.com/trader/v1/userPreference Bearer access-1"]);
+  for (const bad of [{}, { streamerInfo: [] }, { streamerInfo: [{ ...info, streamerSocketUrl: "wss://evil.example/ws" }] }, { streamerInfo: [{ ...info, streamerSocketUrl: "wss://schwab.com.evil.example/ws" }] }, { streamerInfo: [{ ...info, streamerSocketUrl: "https://streamer-api.schwab.com/ws" }] }, { streamerInfo: [{ ...info, schwabClientCustomerId: "" }] }]) {
+    await assert.rejects(() => ask(bad), (e: unknown) => e instanceof HttpError && e.status === 502 && e.code === "schwab");
+  }
+  await assert.rejects(() => ask({ message: "no" }, 401), (e: unknown) => e instanceof HttpError && e.status === 502 && /401/.test(e.message));
+});
+
+Deno.test("the access token for the stream is the current one, renewed when it is about to run out", async () => {
+  const { w, instance, issue } = world();
+  w.answer = issue;
+  const s = instance();
+  assert.equal(await s.access(), null);
+  await s.connect("code-12345");
+  assert.deepEqual(await s.access(), { token: "access-1", until: new Date(T0 + 30 * MIN).toISOString() });
+  w.now = T0 + 29 * MIN;
+  assert.deepEqual(await s.access(), { token: "access-2", until: new Date(T0 + 59 * MIN).toISOString() });
+  w.now = T0 + SIGN_IN_MS + MIN;
+  assert.equal(await instance().access(), null);
 });
 
 // ---- the data shapes

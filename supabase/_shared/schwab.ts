@@ -7,6 +7,7 @@ import { HttpError } from "./http.ts";
 
 export const OAUTH = "https://api.schwabapi.com/v1/oauth";
 export const MARKET = "https://api.schwabapi.com/marketdata/v1";
+export const TRADER = "https://api.schwabapi.com/trader/v1";
 export const SIGN_IN_MS = 7 * 86400_000;
 const EARLY_MS = 2 * 60_000;   // an access token is renewed two minutes before it runs out
 
@@ -55,6 +56,20 @@ export async function appRecognised(a: App, f: Fetch = (u, i) => fetch(u, i)) {
   } catch { return { recognised: null, status: 0, error: null }; }
 }
 
+// Where Schwab's live stream is and how this account signs in to it. The browser on the owner's own device opens
+// the stream itself (it is a long-lived connection, which a function cannot hold), so these go to him and no one else.
+export async function streamerInfo(token: string, f: Fetch = (u, i) => fetch(u, i)) {
+  const r = await f(TRADER + "/userPreference", { headers: { Authorization: "Bearer " + token, Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
+  if (!r.ok) throw new HttpError(502, "schwab", "Schwab did not hand out the live stream details (" + r.status + ").");
+  const s = (await r.json().catch(() => null))?.streamerInfo?.[0];
+  let host = "";
+  try { const u = new URL(String(s?.streamerSocketUrl)); if (u.protocol === "wss:") host = u.hostname; } catch { /* not an address */ }
+  if (!(host === "schwab.com" || host.endsWith(".schwab.com")) || !s.schwabClientCustomerId || !s.schwabClientCorrelId) {
+    throw new HttpError(502, "schwab", "Schwab's answer had no usable live stream details.");
+  }
+  return { socket: String(s.streamerSocketUrl), customer: String(s.schwabClientCustomerId), correl: String(s.schwabClientCorrelId), channel: String(s.schwabClientChannel ?? ""), fn: String(s.schwabClientFunctionId ?? "") };
+}
+
 export const tokenStore: Store = {
   read: async () => (await db("indai_schwab", { id: "eq.owner", select: "refresh_token,signed_in_at,access_token,access_until" }))[0] ?? null,
   write: async (t) => { await db("indai_schwab", { on_conflict: "id" }, { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ id: "owner", ...t, updated_at: new Date().toISOString() }) }); },
@@ -101,6 +116,11 @@ export function schwabSession(io: { app: App | null; store?: Store; fetch?: Fetc
       held = { refresh_token: r.refresh, signed_in_at: new Date(now()).toISOString(), access_token: r.access, access_until: new Date(now() + r.seconds * 1000).toISOString() };
       await store.write(held);
       return r.access;
+    },
+    // The access token with its expiry, for the one case where the owner's own browser needs it: the live stream.
+    async access(): Promise<{ token: string; until: string | null } | null> {
+      const token = await this.token();
+      return token ? { token, until: held?.access_until ?? null } : null;
     },
     async status() {
       const t = io.app ? await store.read() : null, on = alive(t), by = on ? Date.parse(t.signed_in_at) + SIGN_IN_MS : null;
