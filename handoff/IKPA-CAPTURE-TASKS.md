@@ -32,7 +32,9 @@ it as gone: option chains, GEX levels and daily history need another source.
   asks, so nothing breaks, and nothing lights up either.
 - Done when: GET lists `modes`, and `{mode:"nonsense"}` returns 400 without a model call.
 
-### CAP-5 · Talk answers come back empty on longer questions · P0 (written in this pull request)
+### CAP-5 · Talk answers come back empty on longer questions · P0 (deployed: indai-brain version 12)
+**Deployed on November 20 at 9:50 ET with the owner's go-ahead**, from this branch's files (identical to `main`
+apart from the two lines below). Merging this pull request brings `main` level with what is live.
 Found in the live test run at the open on November 20. `claude-haiku-5-5` thinks before it answers, and its
 thinking counts against `max_tokens`. Talk mode allowed 700, so on a longer question the thinking used all 700 and
 the answer was empty (`result.spoken: ""`, `output_tokens: 700`). A short question used 304 thinking tokens of 493.
