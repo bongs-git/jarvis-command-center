@@ -1,5 +1,44 @@
 # INDAI handoff: who builds what
 
+## Website handback to Ikpa — November 20, 2026
+
+Website changes are under review in [website PR #1](https://github.com/bongs-git/bongs-git.github.io/pull/1).
+Price freshness labels, missing-option explanations, drawing tools/undo, history states and push receipt timing
+are implemented; browser regression checks are running before release. Quest application files and backend
+code are unchanged by this work.
+
+**Backend requests:** `supabase/indai-brain/profile.ts` still permits only speech, ears, plan and watchlist.
+`drawings` and `tuning` currently return `400 bad_key`; the website queues work locally and shows that limitation.
+Please agree and implement these additive profile contracts before calling cross-device sync complete:
+
+- `drawings`: `{version:1,items:{[id]:item}}`. Each item contains `id`, `symbol`, `updatedAt` (epoch ms),
+  and either `deleted:true` or `type` (`line`, `level`, `ray`, `rect`) with existing drawing fields:
+  level `p`, ray `a:{t,p}`, line/rectangle `a:{t,p},b:{t,p},day` (epoch ms).
+  Atomically merge by ID on PUT; larger `updatedAt` wins, deletion wins an equal timestamp, preserve all
+  other IDs/symbols, and return the canonical merged `value`. Whole-profile replacement loses concurrent
+  device edits. Retain tombstones so a sleeping device cannot resurrect deleted work. Apply existing
+  auth/owner scoping and input-size limits.
+- `tuning`: `{version:1,adj,labels,minAdd,stop,target,at,basis?}`. `adj`/`labels` are keyed by setup type;
+  reset is an empty adjustment map, `minAdd:0,stop:1,target:1`, with a new `at`. Select the larger `at`
+  atomically and return canonical `value`. Keep these scoped to the same account and use them in the push
+  scanner only after validation. A pending older profile must not overwrite a newer remote profile.
+
+Example client requests (existing brain/passcode transport, no new route):
+```js
+relay.brain({mode:'profile',op:'get',key:'drawings'}, ownerToken)
+relay.brain({mode:'profile',op:'put',key:'tuning',value:{version:1,adj:{},labels:{},minAdd:0,stop:1,target:1,at:Date.now()}}, ownerToken)
+```
+
+**Schwab:** no order endpoint contract is present yet. The website does not submit orders. Please specify
+account authorization, exact contract identifier, quantity, limit/max-loss fields, preview/confirmation and
+idempotency/error behavior before the confirm sheet is built.
+
+**Remaining acceptance:** TradingView's component remains loading in the remote preview; full-screen control
+works, but live rendering on iPhone/iPad/laptop is not certified. Owner-device checks for silent-ring voice and
+closed-app push remain open. Receipt timing uses `barT + 300000` because scanner `barT` is the start of a
+completed five-minute candle. A test push does not overwrite the latest market-alert receipt.
+
+
 INDAI is one product with two faces: the Meta Quest command center (this repo) and a standalone website
 for phone, tablet and laptop (separate project, see "Standalone website" below). Both sit on the same backend.
 This file is the contract between the two builders so they never edit the same thing.
