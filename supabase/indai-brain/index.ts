@@ -17,6 +17,7 @@ import { profile } from "./profile.ts";
 import { streamTalk } from "./stream.ts";
 import { brainStatus, extractJson, think } from "./super.ts";
 import { atlasMode } from "./atlas.ts";
+import { aboutIdea, IDEA_TALK, ideaBrief, lastIdea, type LastIdea, markTalked, saveIdea, saveVerdict, serverContext, SPOKEN_ONLY } from "./idea.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -98,7 +99,25 @@ async function callClaude(key: string, model: string, system: string, userText: 
   return { finalText, sources, usage, stop };   // stop: why the model stopped; "max_tokens" means the reply was cut off
 }
 
-serve("indai-brain",async (req) => {
+// A talk request with format:"text" is answered in plain words and nothing else, for something that only speaks
+// (a Siri shortcut on a locked phone). Its failures are plain words too, with the same status.
+const spokenOnly = new WeakSet<Request>();
+const plainText = (text: string, status = 200) => new Response(text, { status, headers: { ...CORS, "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
+async function inWords(res: Response) {
+  const j = await res.json().catch(() => ({}));
+  const said: Record<string, string> = {
+    passcode: "INDAI did not accept the passcode saved in this shortcut.",
+    rate_limited: "That is this hour's limit of questions. Try again a little later.",
+    budget: "INDAI's thinking budget for today is used up.",
+    not_configured: "INDAI's thinking is not switched on.",
+  };
+  return plainText(said[j?.error] ?? "INDAI could not answer just now. Try again in a moment.", res.status);
+}
+serve("indai-brain", async (req) => {
+  const res = await answer(req);
+  return spokenOnly.has(req) && !res.ok ? await inWords(res) : res;
+});
+async function answer(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const key = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
   const pass = Deno.env.get("INDAI_PASSCODE") ?? "";
@@ -118,6 +137,7 @@ serve("indai-brain",async (req) => {
       throw new HttpError(400,"bad_request","Choose list or clear.");
     }
     if (body.mode === "talk") {
+      if (body.format === "text") spokenOnly.add(req);
       if (body.request_id != null && !uuid.test(body.request_id)) throw new HttpError(400,"bad_request","request_id must be a UUID.");
     }
     if (body.mode === "profile") return await profile(req, body);
@@ -144,12 +164,20 @@ serve("indai-brain",async (req) => {
     const now = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" }).format(new Date());
     let memory: any[] = [];
     let prior = Array.isArray(body.history) ? body.history : [];
+    let idea: LastIdea | null = null;
     try {
-      if (talkUser) [memory, prior] = await Promise.all([
+      if (talkUser) [memory, prior, idea] = await Promise.all([
         memList(talkUser, 40),
         prior.length ? Promise.resolve(prior) : recentTurns(talkUser, session),
+        lastIdea(talkUser).catch(() => null),   // the conversation goes on without it
       ]);
     } catch(e) { return failure(e); }
+    const asked = clean(body?.question).slice(0, 600);
+    // A question about the idea they last asked about gets the stronger model, with the idea, its numbers and her verdict.
+    const deep = aboutIdea(asked, idea);
+    const talkModel = deep ? MODELS.fast : MODELS.talk, talkTokens = deep ? 1500 : 700;
+    // With no app on screen (nothing came as context) she is given what the server can see for itself.
+    const shown = body?.context && typeof body.context === "object" && Object.keys(body.context).length ? body.context : talkUser ? await serverContext(req, asked, idea) : {};
     const history = prior.slice(-16)
       .filter((h: any) => h && typeof h === "object")
       .map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: clean(h.text) })).filter((h: any) => h.content);
@@ -158,8 +186,8 @@ serve("indai-brain",async (req) => {
     for (const h of history) { if (turns.length && turns[turns.length - 1].role === h.role) turns[turns.length - 1].content += " " + h.content; else turns.push(h); }
     while (turns.length && turns[0].role !== "user") turns.shift();
     while (turns.length && turns[turns.length - 1].role !== "assistant") turns.pop();
-    const system = `${TALK_SYSTEM}\n\nTrader: ${name}. Now: ${now} (New York).\nmemory = ${JSON.stringify(memory.map((m: any) => ({ id: m.id, kind: m.kind, text: m.text })))}\nspeech_habits = ${JSON.stringify(body?.speech ?? {}).slice(0, 1500)}`;
-    const userText = `They said (as heard): "${clean(body?.question).slice(0, 600)}"\ncontext = ${JSON.stringify(body?.context ?? {}).slice(0, 12000)}`;
+    const system = `${TALK_SYSTEM}${deep ? IDEA_TALK : ""}${spokenOnly.has(req) ? SPOKEN_ONLY : ""}\n\nTrader: ${name}. Now: ${now} (New York).\nmemory = ${JSON.stringify(memory.map((m: any) => ({ id: m.id, kind: m.kind, text: m.text })))}\nspeech_habits = ${JSON.stringify(body?.speech ?? {}).slice(0, 1500)}${deep && idea ? ideaBrief(idea) : ""}`;
+    const userText = `They said (as heard): "${asked}"\ncontext = ${JSON.stringify(shown).slice(0, 12000)}`;
     try {
       const finish = async (parsed: any, sources: any[], usage: any) => {
         let remembered: any[] = [];
@@ -171,12 +199,14 @@ serve("indai-brain",async (req) => {
           await memForget(talkUser,ids(parsed.forget).filter(id=>known.has(id)));
         }
         if (talkUser) await saveTurns(talkUser,session,clean(body.question),String(parsed.spoken),body.request_id ?? null);
-        return { mode: "talk", model: MODELS.talk, result: parsed, remembered, sources, usage };
+        if (talkUser && deep && idea) await markTalked(talkUser, idea.at).catch(() => {});
+        return { mode: "talk", model: talkModel, result: parsed, remembered, sources, usage, ...(deep ? { about: "idea" } : {}) };
       };
-      if (body.stream === true) return await streamTalk({key, model: MODELS.talk, system, userText, history: turns, search: body.search !== false, admitGuest: talkUser === null, signal: req.signal, headers: CORS, finish});
-      const { finalText, sources, usage } = await callClaude(key, MODELS.talk, system, userText, { history: turns, maxTokens: 700, searches: body.search === false ? 0 : 2 });
-      const parsed = extractJson(finalText) ?? { spoken: finalText.replace(/[{}"]/g, "").slice(0, 400) };
-      return json(await finish(parsed, sources, usage));
+      if (body.stream === true && !spokenOnly.has(req)) return await streamTalk({key, model: talkModel, maxTokens: talkTokens, system, userText, history: turns, search: body.search !== false, admitGuest: talkUser === null, signal: req.signal, headers: CORS, finish});
+      const { finalText, sources, usage } = await callClaude(key, talkModel, system, userText, { history: turns, maxTokens: talkTokens, searches: body.search === false ? 0 : 2 });
+      const parsed = extractJson(finalText) ?? { spoken: finalText.replace(/[{}"]/g, "").slice(0, deep ? 900 : 400) };
+      const done = await finish(parsed, sources, usage);
+      return spokenOnly.has(req) ? plainText(String(parsed.spoken ?? "").trim() || "I have nothing to say to that yet.") : json(done);
     } catch(e) { return failure(e); }
   }
   const mode = body?.mode === "chat" ? "chat" : "trade";
@@ -194,13 +224,18 @@ serve("indai-brain",async (req) => {
     ? `Now: ${now} (New York).\nThe trader's words: "${question}"\nParsed idea: ${JSON.stringify(body?.idea ?? {}).slice(0, 2000)}\ncontext = ${ctx}`
     : `Now: ${now} (New York).\nQuestion: "${question}"\ncontext = ${ctx}`;
   const system = mode === "trade" ? SYSTEM : CHAT_SYSTEM;
+  // The idea is kept so the conversation can go on about it afterwards (idea.ts), whether or not the research finishes.
+  const kept = mode === "trade" && talkUser ? saveIdea(talkUser, question, body?.idea, ctx).catch(() => null) : null;
   try {
-    const answer = await think({
+    const thought = await think({
       mode, depth, model, system, userText, evidence, now, question, idea: body?.idea, context: body?.context,
       claude: (text, searches) => callClaude(key, model, system, text, { maxTokens: RESEARCH_REPLY_TOKENS, ...(searches == null ? {} : { searches }) }),
     });
-    return json(answer.body, answer.status);
+    const at = kept ? await kept : null;
+    if (at && talkUser && thought.status === 200) await saveVerdict(talkUser, at, thought.body.result).catch(() => {});
+    return json(thought.body, thought.status);
   } catch (e) {
+    if (kept) await kept;
     return failure(e);
   }
-});
+}
