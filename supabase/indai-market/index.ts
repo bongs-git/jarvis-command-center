@@ -5,6 +5,7 @@ import { serve, markMode } from "../_shared/http.ts";
 import { licensedKey, minuteBars, optionsRaw, quotes } from "./licensed.ts";
 import { failure } from "../_shared/http.ts";
 import { rpc } from "../_shared/db.ts";
+import { BRIDGE, bridgeBars, bridgePrevClose, bridgeQuote, bridgeRows } from "./bridge.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -42,6 +43,18 @@ async function cboe(path: string) {
 function todayET() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
 }
+// The owner's TradingView bridge stands in when CBOE refuses a quote or the intraday candles.
+async function bridge(symbol: string) {
+  const rows = await cached("tv:" + symbol, 15_000, () => bridgeRows(symbol));
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const prevClose = await cached("tvp:" + symbol + ":" + todayET(), 3_600_000, () => bridgePrevClose(symbol, rows));
+  return { rows, prevClose };
+}
+// The answer as a whole is labelled as the bridge's when every ticker that could be answered came from it.
+const allBridge = (items: any[]) => {
+  const answered = items.filter((x) => x && !x.error && x.ok !== false);
+  return answered.length > 0 && answered.every((x) => x.source === BRIDGE) ? { source: BRIDGE, delay: 0, delayed: false } : {};
+};
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : Number(v) || 0);
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
@@ -231,9 +244,16 @@ serve("indai-market",async (req) => {
           const raw = await cached("q:" + t, 20_000, () => cboe(`quotes/${cboeSym(t)}.json`));
           const d = raw?.data ?? {};
           return { symbol: t, ok: true, timestamp: raw?.timestamp ?? null, price: num(d.current_price), change: num(d.price_change), changePct: num(d.price_change_percent), open: num(d.open), high: num(d.high), low: num(d.low), prevClose: num(d.prev_day_close), close: num(d.close), volume: num(d.volume), iv30: num(d.iv30), lastTrade: d.last_trade_time ?? null };
-        } catch (e) { return { symbol: t, ok: false, error: String((e as Error).message) }; }
+        } catch (e) {
+          try {
+            const b = await bridge(t);
+            const q = b && bridgeQuote(t, b.rows, b.prevClose, Date.now());
+            if (q) return q;
+          } catch { /* the bridge has nothing for this ticker either */ }
+          return { symbol: t, ok: false, error: String((e as Error).message) };
+        }
       }));
-      return json({ quotes: out }, 200, 10);
+      return json({ quotes: out, ...allBridge(out) }, 200, 10);
     }
     if (kind === "bars") {
       const out: Record<string, unknown> = {};
@@ -252,9 +272,16 @@ serve("indai-market",async (req) => {
             bars.push([mins, num(p.open), num(p.high), num(p.low), num(p.close), num(v.stock_volume), num(v.calls_volume), num(v.puts_volume)]);
           }
           out[t] = { session, bars, timestamp: raw?.timestamp ?? null };
-        } catch (e) { out[t] = { error: String((e as Error).message) }; }
+        } catch (e) {
+          let stored = null;
+          try {
+            const b = await bridge(t);
+            stored = b && bridgeBars(b.rows);
+          } catch { /* the bridge has nothing for this ticker either */ }
+          out[t] = stored ?? { error: String((e as Error).message) };
+        }
       }));
-      return json({ bars: out, note: "1-minute bars, minutes after midnight New York time: [mins, open, high, low, close, volume, callVolume, putVolume]" }, 200, 15);
+      return json({ bars: out, note: "1-minute bars, minutes after midnight New York time: [mins, open, high, low, close, volume, callVolume, putVolume]", ...allBridge(Object.values(out)) }, 200, 15);
     }
     if (kind === "daily") {
       const out: Record<string, unknown> = {};

@@ -11,6 +11,13 @@
 //   4. Create an alert: Condition = "INDAI Bridge", then change "Crossing" to "Any alert() function call".
 //      Notifications > Webhook URL = the INDAI link you were given. Leave the message box as it is.
 //   One alert covers every ticker. Alerts on the Essential plan expire after 2 months; just re-create it.
+//
+// Extended hours: with "Send pre-market and after-hours candles" ticked (the default) the bridge also sends the
+// candles outside 9:30-16:00 New York time, so INDAI has a current price before the open and after the close.
+// For that the alert has to sit on a chart that keeps printing candles outside regular hours: turn on
+// "Extended trading hours" for the chart (the session menu at the bottom right) before creating the alert.
+// An alert keeps the script as it was when the alert was created. After pasting a newer version of this script,
+// delete the old alert and create it again (step 4), or INDAI keeps receiving the old behaviour.
 indicator("INDAI Bridge", shorttitle = "INDAI", overlay = true)
 
 t1 = input.symbol("BATS:SPY", "Ticker 1")
@@ -24,11 +31,14 @@ t7 = input.symbol("BATS:NVDA", "", inline = "7")
 use8 = input.bool(false, "Also send ticker 8", inline = "8")
 t8 = input.symbol("BATS:AAPL", "", inline = "8")
 showStatus = input.bool(true, "Show status box")
+useExt = input.bool(true, "Send pre-market and after-hours candles")
 
 num(x) => str.tostring(x, "#.####")
 
-barJson(string sym) =>
-    [o, h, l, c, v, t] = request.security(sym, timeframe.period, [open, high, low, close, volume, time])
+barJson(simple string sym) =>
+    // the same ticker, asked for with or without the extended session
+    string asked = ticker.modify(sym, useExt ? session.extended : session.regular)
+    [o, h, l, c, v, t] = request.security(asked, timeframe.period, [open, high, low, close, volume, time])
     na(c) ? "" : '{"s":"' + sym + '","t":' + str.tostring(t) + ',"o":' + num(o) + ',"h":' + num(h) + ',"l":' + num(l) + ',"c":' + num(c) + ',"v":' + str.tostring(nz(v), "#") + '}'
 
 join(string acc, string item) =>

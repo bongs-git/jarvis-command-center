@@ -55,6 +55,14 @@ from public.indai_signal_events where at > now() - interval '1 day' order by at;
 
 To remove it: `drop trigger indai_bars_arrived on public.indai_tv_bars; drop function public.indai_bars_arrived();`
 
+## When CBOE refuses the backend
+
+On November 19 from about 17:25 ET, CBOE answered every request from the functions with 403 (quotes, intraday candles and option chains alike). `indai-market` version 10 keeps the apps supplied with prices and candles from the TradingView bridge in that case: when the CBOE request for a ticker fails, `snapshot` and `bars` answer that ticker from `indai_tv_bars` (`indai-market/bridge.ts`), marked `source: "TradingView bridge"`, `delay: 0`. While CBOE answers, nothing changes. During regular trading a bridge quote is only given if the newest stored candle is at most ten minutes old, so an old candle is never shown as the current price; outside regular trading the last stored candle is given with its own timestamp. Tickers the bridge does not send, and all option chains, still fail as before.
+
+`supabase/checks/bridge_test.ts` covers the fallback. To see what the hosted function is answering, call `kind=snapshot` and read each quote's `source` and `error`; a quote with `ok:false` carries CBOE's status in `error`.
+
+Deploying one function without the CLI: upload every file of its bundle with the same names the hosted bundle has (`indai-market/index.ts`, `indai-market/licensed.ts`, `indai-market/bridge.ts`, `_shared/http.ts`, `_shared/auth.ts`, `_shared/db.ts`), entrypoint `indai-market/index.ts`, `verify_jwt` as in `config.toml`, then read the bundle back and compare it with the repository byte for byte. Version 10 was deployed and checked that way.
+
 ## Owner-controlled configuration
 
 | Setting | Purpose |
