@@ -4,7 +4,8 @@ import { serve, markMode } from "../_shared/http.ts";
 // and returns compact summaries: put/call ratios, premium flow, unusual activity, GEX walls.
 import { licensedKey, minuteBars, optionsRaw, quotes } from "./licensed.ts";
 import { failure } from "../_shared/http.ts";
-import { rpc } from "../_shared/db.ts";
+import { db, rpc } from "../_shared/db.ts";
+import { feedGate, REFUSALS } from "./gate.ts";
 import { BRIDGE, bridgeBars, bridgePrevClose, bridgeQuote, bridgeRows } from "./bridge.ts";
 
 const CORS = {
@@ -35,9 +36,19 @@ function json(data: any, status = 200, maxAge = 30) {
   });
 }
 const cboeSym = (s: string) => (INDEX.has(s) ? "_" + s : s);
+// While CBOE refuses this address nothing is sent to it (see gate.ts). The error reads as it did when it was asked.
+const cboeGate = feedGate({
+  read: async () => (await db("indai_feed_gate", { name: "eq.cboe", select: "status,wait_ms,until" }))[0] ?? null,
+  write: async (row) => { await db("indai_feed_gate", { on_conflict: "name" }, { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ name: "cboe", ...row, updated_at: new Date().toISOString() }) }); },
+  clear: async () => { await db("indai_feed_gate", { name: "eq.cboe" }, { method: "DELETE", headers: { Prefer: "return=minimal" } }); },
+});
 async function cboe(path: string) {
+  const paused = await cboeGate.blocked(Date.now());
+  if (paused) throw new Error(`CBOE ${paused} for ${path}`);
   const r = await fetch("https://cdn.cboe.com/api/global/delayed_quotes/" + path, { headers: { "User-Agent": UA, Accept: "application/json" } });
+  if (REFUSALS.includes(r.status)) await cboeGate.refused(Date.now(), r.status);
   if (!r.ok) throw new Error(`CBOE ${r.status} for ${path}`);
+  await cboeGate.answered();
   return await r.json();
 }
 function todayET() {
