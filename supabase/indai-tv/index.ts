@@ -63,8 +63,19 @@ serve("indai-tv",async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const url = new URL(req.url);
   markMode(req,url.searchParams.has("bars")?"bars":"alerts");
+  if (req.method === "GET" && url.searchParams.get("bars") && url.searchParams.get("ticker")) {
+    // History for one ticker, for scrolling a chart back: stored one-minute candles older than `before`, newest first.
+    const ticker = cleanTicker(url.searchParams.get("ticker"));
+    if (!ticker) return json({ error: "bad_symbol", message: "Give a ticker, e.g. ticker=QQQ." }, 400);
+    const before = Math.round(Number(url.searchParams.get("before")) || Date.now() + 60_000);
+    const limit = Math.max(1, Math.min(1000, Math.round(Number(url.searchParams.get("limit")) || 1000)));
+    const r = await fetch(`${URL_}/rest/v1/indai_tv_bars?select=t,o,h,l,c,v&ticker=eq.${ticker}&tf=eq.1&t=lt.${before}&order=t.desc&limit=${limit}`, { headers: H });
+    if (!r.ok) throw new HttpError(502,"database","The bridge feed is unavailable.");
+    const rows = await r.json();
+    return new Response(JSON.stringify({ ticker, bars: Array.isArray(rows) ? rows : [], now: Date.now() }), { headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "public, max-age=30" } });
+  }
   if (req.method === "GET" && url.searchParams.get("bars")) {
-    const since = Math.max(Number(url.searchParams.get("since")) || 0, Date.now() - 3 * 3600e3);
+    const since =Math.max(Number(url.searchParams.get("since")) || 0, Date.now() - 3 * 3600e3);
     const r = await fetch(`${URL_}/rest/v1/indai_tv_bars?select=ticker,t,o,h,l,c,v,tf,received_at&t=gt.${since}&order=t.asc&limit=1500`, { headers: H });
     if (!r.ok) throw new HttpError(502,"database","The bridge feed is unavailable.");
     const rows = await r.json();

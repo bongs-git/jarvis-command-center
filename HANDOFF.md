@@ -20,6 +20,11 @@ for the website. One exception so far: early on November 20 the owner asked Clau
 zoom and draw on, and Claude built it in the website (`indai/js/chart.js`, `indai/js/draw.js`, `indai/js/views.js`,
 `indai/index.html`, `indai/css/app.css`). Pull before editing those files.
 
+Who is who, in the owner's words (November 20): **Ikpa** is the Claude bot on the back end and the website's chart
+work (the session that wrote this note). **Papilo** is the Claude bot that builds the Meta Quest app; its current
+brief is `handoff/QUEST-THEME-BRIEF.md`. **ChatGPT** takes the website's remaining front-end work from
+`handoff/CHATGPT-FRONTEND-HANDOFF.md`.
+
 Why it was first split this way round: the front end needs a real headset loop (WebXR emulator tests, hand tracking, on-device
 speech models, APK builds) that is already set up and passing here. The back end is plain HTTP + SQL with a
 written contract, so it can be built and tested from anywhere.
@@ -37,6 +42,7 @@ The only client is `js/relay.js`. The function sources in `/supabase` are the so
 | `…?kind=chain&symbol=&expiry=&range=` | options chain with Greeks and GEX | same file |
 | `…?kind=news&symbol=` | headlines | same file |
 | `GET /functions/v1/indai-tv` , `?bars=1&since=` | TradingView alerts and bridge candles | see `supabase/indai-tv/index.ts` |
+| `GET /functions/v1/indai-tv?bars=1&ticker=QQQ&before=<ms>&limit=1000` | history for one ticker, for scrolling a chart back | `{ ticker, bars: [{t,o,h,l,c,v}], now }`: stored one-minute bridge candles older than `before` (default now), newest first, at most 1000 a call (regular and extended hours; page back with the oldest `t`). No key needed. It only holds what the bridge has sent since November 19, 2026 |
 | `POST /functions/v1/indai-tv?key=…` | TradingView webhook (private key in `indai_private_config`) | Pine `alert()` JSON |
 | `GET /functions/v1/indai-brain` | status | `{ configured, passcode, memory }` |
 | `POST /functions/v1/indai-brain` `{mode:"trade"}` | researched RAG verdict | `{ result: { rag, confidence, headline, spoken, summary[], bullish[], bearish[], news[], events[], watch[], plan_notes } }` |
