@@ -537,7 +537,10 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
-try { renderer.xr.setFoveation(0.25); } catch {}
+// Sharp text in the headset: no fixed foveation (it blurs every panel away from the centre of view) and a
+// framebuffer a little above the browser's default, close to the Quest 3's native panel resolution.
+try { renderer.xr.setFoveation(0); } catch {}
+try { renderer.xr.setFramebufferScaleFactor(1.2); } catch {}
 canvasHost.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();

@@ -7,7 +7,8 @@ export const C = {
   ink: '#050709', bg: '#0a0e14', bg2: '#111721', bg3: '#18202c',
   hair: 'rgba(255,255,255,0.08)', hair2: 'rgba(255,255,255,0.15)',
   line: '#dcbf6e', lineDim: 'rgba(220,191,110,0.5)', lineFaint: 'rgba(255,255,255,0.08)',
-  text: '#f3f1ea', dim: '#9aa3b2', faint: '#5f6a7a',
+  // dim and faint are a step brighter than the website's: thin grey text on near-black strains the eyes in a headset
+  text: '#f3f1ea', dim: '#b2b9c5', faint: '#838d9c',
   gold: '#dcbf6e', goldDim: 'rgba(220,191,110,0.5)', goldWash: 'rgba(220,191,110,0.12)', goldInk: '#17120a',
   up: '#3ecf8e', down: '#f2706b', amber: '#f0b34a', sky: '#6ec3f2', violet: '#a99bf5', white: '#fcfbf5',
   grid: 'rgba(255,255,255,0.055)',
@@ -18,7 +19,10 @@ export const F = {
   hud: "Geist, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
   mono: "'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace",
 };
-export const PPM = 1100; // canvas pixels per meter
+export const PPM = 1100; // layout units per meter: every panel is laid out in these units
+// Panels are painted at TEX x their layout size so text stays crisp in the headset (the lenses and the
+// compositor resample everything; a texture at 1:1 with the display reads soft). Layout code never sees this.
+export const TEX = 1.6;
 
 export function fmtPrice(p) { if (p == null || !isFinite(p)) return '—'; return p >= 1000 ? p.toFixed(1) : p.toFixed(2); }
 export function fmtPct(p) { if (p == null || !isFinite(p)) return '—'; return (p >= 0 ? '+' : '') + p.toFixed(2) + '%'; }
@@ -32,12 +36,13 @@ export const colorFor = (v) => (v > 0 ? C.up : v < 0 ? C.down : C.dim);
 export function font(size, weight = 600, fam = F.hud) { return `${weight} ${size}px ${fam}`; }
 
 export function text(ctx, str, x, y, { size = 28, weight = 600, color = C.text, align = 'left', base = 'alphabetic', fam = F.hud, max = 0, spacing = 0 } = {}) {
+  weight = Math.max(500, weight);              // thin strokes shimmer and blur in VR
   ctx.font = font(size, weight, fam);
   ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = base;
   if ('letterSpacing' in ctx) ctx.letterSpacing = spacing ? (spacing * 0.35).toFixed(1) + 'px' : '0px';
   if (max > 0) {
     let s = size;
-    while (s > 10 && ctx.measureText(str).width > max) { s -= 1; ctx.font = font(s, weight, fam); }
+    while (s > 15 && ctx.measureText(str).width > max) { s -= 1; ctx.font = font(s, weight, fam); }
   }
   ctx.fillText(str, x, y);
   if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
@@ -65,13 +70,17 @@ export class Panel {
     this.id = id; this.title = title; this.w = w; this.h = h; this.header = header;
     this.W = Math.round(w * resolution); this.H = Math.round(h * resolution);
     this.canvas = document.createElement('canvas');
-    this.canvas.width = this.W; this.canvas.height = this.H;
+    this.canvas.width = Math.round(this.W * TEX); this.canvas.height = Math.round(this.H * TEX);
     this.ctx = this.canvas.getContext('2d');
+    this.ctx.imageSmoothingQuality = 'high';
     this.tex = new THREE.CanvasTexture(this.canvas);
     this.tex.colorSpace = THREE.SRGBColorSpace;
     this.tex.minFilter = THREE.LinearMipmapLinearFilter;
     this.tex.generateMipmaps = true;
     const mat = new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, side: THREE.DoubleSide, toneMapped: false });
+    // Sample half a mip level sharper than the GPU would pick: keeps text crisp on panels seen at an angle or from afar.
+    mat.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', '#ifdef USE_MAP\n\tdiffuseColor *= texture2D( map, vMapUv, -0.5 );\n#endif'); };
+    mat.customProgramCacheKey = () => 'indai-panel-sharp';
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
     this.mesh.userData.panel = this;
     this.mesh.renderOrder = 1;
@@ -111,6 +120,7 @@ export class Panel {
     const { ctx, W, H } = this;
     if (this.prepare) this.prepare();
     this.buttons = [];
+    ctx.setTransform(TEX, 0, 0, TEX, 0, 0);    // draw in layout units onto the larger canvas
     ctx.clearRect(0, 0, W, H);
     // flat panel, as on the website: #0a0e14, hairline border, 10px corners. Kept nearly opaque so text holds
     // its contrast against passthrough and the scenes.

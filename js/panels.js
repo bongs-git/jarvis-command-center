@@ -8,7 +8,7 @@ import { SCENES, sceneName } from './scenes.js';
 
 export const RAGC = { GREEN: C.up, AMBER: C.amber, RED: C.down };
 
-function wrap(ctx, str, maxW, size, fam = F.hud, weight = 400) {
+function wrap(ctx, str, maxW, size, fam = F.hud, weight = 500) {
   ctx.font = `${weight} ${size}px ${fam}`;
   const words = String(str).split(/\s+/); const lines = []; let cur = '';
   for (const w of words) {
@@ -18,7 +18,7 @@ function wrap(ctx, str, maxW, size, fam = F.hud, weight = 400) {
   if (cur) lines.push(cur);
   return lines;
 }
-function para(ctx, str, x, y, maxW, { size = 22, lh = 1.35, color = C.text, weight = 400, maxLines = 99 } = {}) {
+function para(ctx, str, x, y, maxW, { size = 22, lh = 1.35, color = C.text, weight = 500, maxLines = 99 } = {}) {
   const lines = wrap(ctx, str, maxW, size, F.hud, weight).slice(0, maxLines);
   lines.forEach((l, i) => text(ctx, l, x, y + i * size * lh, { size, color, weight }));
   return lines.length * size * lh;
