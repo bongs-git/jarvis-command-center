@@ -42,7 +42,7 @@ export async function streamTalk(opts: TalkOptions) {
       const settle = await reserveTokens({ system: opts.system, messages }, 700, opts.search ? 2 : 0, step === 0 && opts.admitGuest);
       const stream = client.messages.stream({
         model: opts.model,
-        max_tokens: 700,
+        max_tokens: 1600, // thinking counts against this; see TALK_MAX_TOKENS in index.ts
         messages,
         system: opts.system + '\nPut the "spoken" property first. Start with the JSON object.',
         ...(opts.search

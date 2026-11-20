@@ -24,6 +24,9 @@ const CORS = {
   "Access-Control-Max-Age": "86400",
 };
 const MODELS: Record<string, string> = { fast: "claude-sonnet-5-5", deep: "claude-opus-5-5", talk: "claude-haiku-5-5" };
+// The talk model thinks before it answers, and its thinking counts against max_tokens: 700 left nothing for the
+// answer on longer questions (an empty "spoken"). The answer itself stays short because the prompt asks for 1-3 sentences.
+export const TALK_MAX_TOKENS = 1600;
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { ...CORS, "Content-Type": "application/json" } });
@@ -164,7 +167,7 @@ serve("indai-brain",async (req) => {
         return { mode: "talk", model: MODELS.talk, result: parsed, remembered, sources, usage };
       };
       if (body.stream === true) return await streamTalk({key, model: MODELS.talk, system, userText, history: turns, search: body.search !== false, admitGuest: talkUser === null, signal: req.signal, headers: CORS, finish});
-      const { finalText, sources, usage } = await callClaude(key, MODELS.talk, system, userText, { history: turns, maxTokens: 700, searches: body.search === false ? 0 : 2 });
+      const { finalText, sources, usage } = await callClaude(key, MODELS.talk, system, userText, { history: turns, maxTokens: TALK_MAX_TOKENS, searches: body.search === false ? 0 : 2 });
       const parsed = extractJson(finalText) ?? { spoken: finalText.replace(/[{}"]/g, "").slice(0, 400) };
       return json(await finish(parsed, sources, usage));
     } catch(e) { return failure(e); }

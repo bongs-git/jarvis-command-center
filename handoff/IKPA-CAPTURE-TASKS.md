@@ -19,6 +19,10 @@ contract rows. Never send the knowledge base to the browser.
 
 ## Tickets, in priority order
 
+**Also, from the morning of November 20:** CBOE's Cloudflare blocks the delayed-quotes API even from the owner's
+own browser ("Sorry, you have been blocked" on `cdn-api.cboe.com`, checked at 9:33 ET), not only from Supabase. Treat
+it as gone: option chains, GEX levels and daily history need another source.
+
 ### CAP-0 · List the brain's modes, and refuse unknown ones · P0 (small)
 - `GET indai-brain` adds `modes: string[]`, listing only what this deployment answers (today: `talk`, `trade`, `chat`,
   `memory`, `profile`, `history`; add `atlas` with CAP-1 and `capture` with CAP-2).
@@ -27,6 +31,17 @@ contract rows. Never send the knowledge base to the browser.
 - Why it matters: the website asks for `atlas` or `capture` only when `modes` lists it. Without `modes` it never
   asks, so nothing breaks, and nothing lights up either.
 - Done when: GET lists `modes`, and `{mode:"nonsense"}` returns 400 without a model call.
+
+### CAP-5 · Talk answers come back empty on longer questions · P0 (written in this pull request)
+Found in the live test run at the open on November 20. `claude-haiku-5-5` thinks before it answers, and its
+thinking counts against `max_tokens`. Talk mode allowed 700, so on a longer question the thinking used all 700 and
+the answer was empty (`result.spoken: ""`, `output_tokens: 700`). A short question used 304 thinking tokens of 493.
+This hits voice conversations too, not only Capture.
+- The fix is in this pull request: talk's `max_tokens` goes from 700 to 1600 in `index.ts` (`TALK_MAX_TOKENS`) and
+  `stream.ts`. Spoken answers stay short because the prompt still asks for 1 to 3 sentences.
+- Deploy `indai-brain`, then check: a 2 KB context returns a non-empty `spoken`.
+- Also worth doing: when a reply stops at `max_tokens` with no text, return an error (`cut_off`) instead of an empty
+  `spoken`, so every client can say so.
 
 ### CAP-1 · `mode:"atlas", op:"scan"`: numbers for the patterns found in a capture · P0
 Builds on ATLAS-5 (the same reader and engine, with no model call, scoped to the owner).
