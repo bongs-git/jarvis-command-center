@@ -31,3 +31,7 @@ entrypoint = "./indai-push/index.ts"
 [functions.indai-schwab]
 verify_jwt = false
 entrypoint = "./indai-schwab/index.ts"
+
+[functions.indai-orders]
+verify_jwt = false
+entrypoint = "./indai-orders/index.ts"
