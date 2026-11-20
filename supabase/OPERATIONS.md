@@ -55,6 +55,8 @@ from public.indai_signal_events where at > now() - interval '1 day' order by at;
 
 To remove it: `drop trigger indai_bars_arrived on public.indai_tv_bars; drop function public.indai_bars_arrived();`
 
+A second trigger on the same table, `indai_keep_minute_bar` (migration `20261120052807_indai_tv_bars_keep_minute_candles.sql`), protects the one-minute candles the scan is built from. The table's key is `(ticker, t)`, so a bridge alert left on another timeframe sends candles that start at the same moment as a one-minute candle; an update that would change a stored one-minute candle's timeframe is now skipped, while a one-minute candle still replaces a stored candle of another timeframe. `supabase/checks/bars-arrival.sql` checks both triggers. The bridge alert belongs on a 1-minute chart: `select tf, count(*), max(received_at) from public.indai_tv_bars group by tf` shows what is arriving.
+
 ## When CBOE refuses the backend
 
 On November 19 from about 17:25 ET, CBOE answered every request from the functions with 403 (quotes, intraday candles and option chains alike). `indai-market` version 10 keeps the apps supplied with prices and candles from the TradingView bridge in that case: when the CBOE request for a ticker fails, `snapshot` and `bars` answer that ticker from `indai_tv_bars` (`indai-market/bridge.ts`), marked `source: "TradingView bridge"`, `delay: 0`. While CBOE answers, nothing changes. During regular trading a bridge quote is only given if the newest stored candle is at most ten minutes old, so an old candle is never shown as the current price; outside regular trading the last stored candle is given with its own timestamp. Tickers the bridge does not send, and all option chains, still fail as before.

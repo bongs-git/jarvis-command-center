@@ -1,8 +1,9 @@
--- Checks the bridge-arrival trigger (indai_bars_arrived) in a disposable database. Never run it on the hosted project.
+-- Checks the two triggers on the bridge table (indai_bars_arrived, indai_keep_minute_bar) in a disposable database. Never run it on the hosted project.
 --
 --   createdb indai_check
 --   psql -v ON_ERROR_STOP=1 -d indai_check \
---     -v migration=supabase/migrations/20261120001048_indai_push_scan_on_bar_arrival.sql -f supabase/checks/bars-arrival.sql
+--     -v migration=supabase/migrations/20261120001048_indai_push_scan_on_bar_arrival.sql \
+--     -v guard=supabase/migrations/20261120052807_indai_tv_bars_keep_minute_candles.sql -f supabase/checks/bars-arrival.sql
 --
 -- It stands in for the bridge table and for indai_push_tick(), applies the migration, and counts how often the
 -- scan is started. Every line of output must end in "ok".
@@ -82,3 +83,35 @@ select 'the candle is stored anyway: ok';
 -- 8. A write that stores nothing starts nothing.
 insert into public.indai_tv_bars (ticker, t, c, tf) select 'SPY', 0, 1, '1' where false;
 select pg_temp.expect('an empty write starts none', 0);
+
+-- ---- The one-minute candle guard
+\if :{?guard}
+\set QUIET on
+\i :guard
+create function pg_temp.bar(p_ticker text, p_t bigint) returns text language sql as
+  $$ select tf || ':' || c from public.indai_tv_bars where ticker = p_ticker and t = p_t $$;
+create function pg_temp.same(label text, got text, wanted text) returns text language plpgsql as $$
+begin
+  if got is distinct from wanted then raise exception '%: got %, expected %', label, got, wanted; end if;
+  return label || ': ok';
+end $$;
+\set QUIET off
+-- 9. A 5-minute candle starting at the same moment does not replace a stored one-minute candle.
+insert into public.indai_tv_bars (ticker, t, c, tf) values ('GUARD', :candle, 10, '1');
+insert into public.indai_tv_bars (ticker, t, c, tf) values ('GUARD', :candle, 99, '5')
+  on conflict (ticker, t) do update set c = excluded.c, tf = excluded.tf;
+select pg_temp.same('a 5-minute candle leaves the one-minute candle alone', pg_temp.bar('GUARD', :candle), '1:10');
+-- 10. A one-minute candle replaces a stored candle of another timeframe, and one-minute resends still update.
+insert into public.indai_tv_bars (ticker, t, c, tf) values ('GUARD', :candle + 300000, 50, '5');
+insert into public.indai_tv_bars (ticker, t, c, tf) values ('GUARD', :candle + 300000, 11, '1'), ('GUARD', :candle, 12, '1')
+  on conflict (ticker, t) do update set c = excluded.c, tf = excluded.tf;
+select pg_temp.same('a one-minute candle replaces a 5-minute one', pg_temp.bar('GUARD', :candle + 300000), '1:11');
+select pg_temp.same('a one-minute resend still updates', pg_temp.bar('GUARD', :candle), '1:12');
+-- 11. Other timeframes keep updating among themselves, and a mixed write stores what it may.
+insert into public.indai_tv_bars (ticker, t, c, tf) values ('GUARD', :candle + 600000, 60, '5');
+insert into public.indai_tv_bars (ticker, t, c, tf) values ('GUARD', :candle + 600000, 61, '5'), ('GUARD', :candle, 98, '5'), ('GUARD', :candle + 900000, 62, '5')
+  on conflict (ticker, t) do update set c = excluded.c, tf = excluded.tf;
+select pg_temp.same('a 5-minute resend updates', pg_temp.bar('GUARD', :candle + 600000), '5:61');
+select pg_temp.same('the one-minute candle is still there', pg_temp.bar('GUARD', :candle), '1:12');
+select pg_temp.same('a new 5-minute candle is stored', pg_temp.bar('GUARD', :candle + 900000), '5:62');
+\endif

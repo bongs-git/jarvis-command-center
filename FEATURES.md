@@ -68,4 +68,5 @@ Still to try on real devices: the on-device voice and microphone on an iPhone an
 | 2026-11-19 | Back end: setup pushes are scanned the moment the bridge stores the minute that completes a five-minute candle, instead of on the per-minute timer that ran close to a minute behind. Nothing changes for the apps | supabase/migrations/20261120001048_indai_push_scan_on_bar_arrival.sql |
 | 2026-11-19 | Back end: when CBOE refuses a ticker, prices and one-minute candles come from the TradingView bridge's stored candles instead of failing, marked with their own source. Option chains and GEX levels still need CBOE | supabase/indai-market/bridge.ts, supabase/indai-market/index.ts |
 | 2026-11-19 | TradingView bridge can send pre-market and after-hours candles (on by default; needs the script pasted again and its alert re-created) | tradingview/indai-bridge.pine |
+| 2026-11-20 | Back end: a bridge alert left on another timeframe can no longer replace one-minute candles | supabase/migrations/20261120052807_indai_tv_bars_keep_minute_candles.sql |
 
