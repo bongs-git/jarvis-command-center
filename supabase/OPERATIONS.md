@@ -40,6 +40,21 @@ The scheduler target is configured in Vault. The optional `indai_alert_url` Vaul
 
 The nightly three-day bridge purge, the 150-row memory cap, semantic compaction and the administrative transfer of a legacy owner's data are staged in `supabase/pending/retention_and_memory.sql`. Applying that file schedules real removal of eligible records. Once approved and applied, move the file into `supabase/migrations` using the version recorded by the project. Private learning, profile sync, saved conversations and authenticated accounts already have their database objects. Until owner transfer is enabled, an administrator can identify the verified owner in **Authentication → Users** and retain that UUID for the later link.
 
+## Alert timing
+
+The bridge stores each one-minute candle about three seconds after the minute closes (November 19: median 2.8 s, 95% within 5.6 s). The `indai-push-scan` timer runs at second 0 of every minute, so on its own it finds a finished five-minute candle close to a minute late. Migration `20261120001048_indai_push_scan_on_bar_arrival.sql` adds the statement trigger `indai_bars_arrived` on `indai_tv_bars`: when a write stores a new one-minute candle that completes a five-minute candle (and is at most seven minutes old), it calls `public.indai_push_tick()`, the same entry the timer uses. The session check, the subscriber check, the scanner and the one-setup-per-user-ticker-candle rule are unchanged, and the timer remains as the fallback. A failure inside the trigger is swallowed so a candle is always stored.
+
+`supabase/checks/bars-arrival.sql` exercises the trigger in a disposable database (the command is at the top of the file). On the hosted project it was applied after a rolled-back trial write as `service_role`, and a manual `select public.indai_dispatch('push')` after the close completed with "Market closed.".
+
+To measure the delay from a candle's close to its alert being queued on a trading day:
+
+```sql
+select ticker, strat, at, round(extract(epoch from at - to_timestamp((bar_t + 300000) / 1000.0))::numeric, 1) as seconds_after_close
+from public.indai_signal_events where at > now() - interval '1 day' order by at;
+```
+
+To remove it: `drop trigger indai_bars_arrived on public.indai_tv_bars; drop function public.indai_bars_arrived();`
+
 ## Owner-controlled configuration
 
 | Setting | Purpose |

@@ -11,7 +11,14 @@ This file is the contract between the two builders so they never edit the same t
 | **Front end** | Claude | Everything a person sees, hears or touches: this repo's `index.html`, `js/`, `sw.js`, the Quest APK build, voice in and out, gestures, scenes, panels, and the standalone website UI | Supabase schema, edge function code |
 | **Back end** | ChatGPT | Supabase project `zptjziewsfuvfcogrikz`: edge functions in `/supabase`, tables, scheduled jobs, data vendors, the LLM brain's prompts and memory, auth | Anything under `js/`, `index.html`, `sw.js` |
 
-Why this way round: the front end needs a real headset loop (WebXR emulator tests, hand tracking, on-device
+**Change of hands, November 19, 2026.** The owner's words: "You take the backend fix. I'll use chat gpt for front end
+hand off." From that evening Claude works on the back end and ChatGPT on the front end, until the owner says otherwise.
+The "Never touches" column still applies to whoever holds each lane, and the backlog headings below keep their old
+names: the lane decides who picks an item up, not the name. Before starting, read the other side's notes:
+`supabase/OPERATIONS.md` for the back end; `indai/SYNC.md` and `indai/README.md` in `bongs-git/bongs-git.github.io`
+for the website.
+
+Why it was first split this way round: the front end needs a real headset loop (WebXR emulator tests, hand tracking, on-device
 speech models, APK builds) that is already set up and passing here. The back end is plain HTTP + SQL with a
 written contract, so it can be built and tested from anywhere.
 
@@ -58,7 +65,12 @@ every function answers `OPTIONS` with open CORS; nothing secret is ever returned
 5. **Accounts.** Email accounts and scoped database access are live. Configure an owner passcode for the signed-out headset. Legacy-owner transfer is staged.
 6. **Morning GEX job.** The scheduler starts at 09:14 ET, retries at 09:17 and audits coverage at 09:20. The November 19 deadline was missed. All 112 tickers had both scopes at 09:20:45 ET. The weekday failure monitor checks at 09:22 ET.
 7. **Real-time data.** The live CBOE relay reports its 900-second delay. A Massive adapter is available once the owner selects the provider and obtains the required entitlements.
-8. **Push alerts.** Subscription and alert delivery endpoints are deployed. End-to-end browser delivery awaits owner-managed VAPID credentials, client registration and a closed-app test.
+8. **Push alerts.** Subscription and alert delivery endpoints are deployed. The owner set the VAPID keys and the passcode on November 19, two browsers are registered, and a test push was accepted by the provider that evening. The scan now starts when the bridge stores the minute that completes a five-minute candle (migration `20261120001048`, see "Alert timing" in `supabase/OPERATIONS.md`); before that it ran only on the per-minute timer and was close to a minute behind every candle. No setup has been pushed in a live session yet: the first browser registered after the November 19 close, so November 20 is the first. Still to confirm: a notification displayed with the app closed.
+9. **Push needs today's plan.** `eligible()` only sends when the stored `plan` carries today's New York date, and the website writes it when it is opened. A trader who has not opened INDAI that morning gets no pushes. Decide whether the last plan should carry into a new day with a fresh risk state.
+10. **Bridge coverage.** On November 19 the bridge's candles start at 12:40 ET, so the scan ran on a part session (session VWAP, the clouds and the opening range all start from the first stored candle). Nothing warns when candles are missing after the open.
+11. **Research replies cut off.** Researched `trade` and searched `talk` replies have come back incomplete (`502 parse`) while still being charged to the daily token budget. The website now protects itself, but the cause is here, probably the reply token limit.
+12. **Read endpoints are open.** `indai-market`, the `indai-tv` GETs and `indai_gex_levels` answer without the owner passcode, so the access lock covers the brain, memory, profile and push but not prices or bridge candles.
+13. **Learned adjustments.** The website's Retrospective changes scores on the device (`indai.web.retro.v1`); the push scanner does not know them, so a pushed score can differ from the one the app shows.
 
 ## Front-end backlog (Claude)
 
