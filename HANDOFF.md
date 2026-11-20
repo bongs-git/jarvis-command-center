@@ -134,6 +134,16 @@ every function answers `OPTIONS` with open CORS; nothing secret is ever returned
 
 19. **Prices between candle closes.** Live since November 20: the bridge script (`tradingview/indai-bridge.pine`) can send the forming candle up to three times a minute, `indai-tv` version 11 keeps it in `indai_tv_live` and serves it in `live` (contract row above), and the website uses it. Papilo: the Quest app can do the same from `relay.tvBars`'s answer (`live`, `cursor`); nothing changes for it until it does. The owner has to paste the new script and re-create the alert once. TradingView stops an alert that fires more than 15 times in 3 minutes; the script's ceiling is 12.
 20. **Schwab is phase 2.** The owner created his Schwab developer app on November 20; approval takes about two days ("Approved - Pending" until "Ready For Use"). His words: "we can table the Schwab trigger option till phase 2". Nothing is built for it yet: no order endpoint, no market-data adapter. The app's callback URL is `https://127.0.0.1`.
+21. **Market Pattern Atlas.** The owner's book, *The Market Pattern Atlas*, arrived as an engine in `atlas/` (no data:
+    the knowledge base is private and lives only in the table `indai_atlas`). Ikpa's tickets ATLAS-0 to ATLAS-8 are in
+    `handoff/IKPA-ATLAS-TASKS.md`. Done November 20: ATLAS-0 (engine reviewed and merged; its tests pass 27 without the
+    data, 42 with it, and 42 again on the data as the database hands it back) and ATLAS-1 (table created, the owner's
+    file loaded as key `kb`, version `rev1.1-corrected`, an exact copy; the public key is refused). How the data got
+    there, and how to load the next revision, is in `atlas/load/`. A schema named `indai_stage` exists only during a
+    load: if you find one, a load was interrupted or its clean-up is waiting for the owner's approval. Still to do:
+    an atlas read on every rated idea (`result.atlas`, additive), TA-Lib-matching candle detectors, VIX for the red
+    hat, a no-model `mode:"atlas"` endpoint, chart marks on the website, the formula desk in the options calculator,
+    and logging the owner's live results against the atlas baseline.
 
 ## Front-end backlog (Claude)
 

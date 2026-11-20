@@ -5,6 +5,7 @@ One line per user-visible feature, newest first. The Quest app and the standalon
 
 | Date | Feature | Where | web |
 |---|---|---|---|
+| 2026-11-20 | Market Pattern Atlas engine: tested pattern odds vs matched baselines, honest combining, six-hat read with a red/amber/green light, formula desk (data kept private; wiring in progress) | atlas/, handoff/IKPA-ATLAS-TASKS.md | todo (ATLAS-6) |
 | 2026-11-20 | Per-ticker source/freshness labels, unknown previous close shown as —, and missing-option/GEX explanations | Website PR #1: data-status.js, views.js, sheets.js, ideas.js | done (website PR #1, all CI groups passed) |
 | 2026-11-20 | Drawing undo, horizontal ray, rectangle, touch magnifier; history loading/end labels and earlier-session hour labels | Website PR #1: draw.js, chart.js, history.js | done (website PR #1, all CI groups passed) |
 | 2026-11-20 | Cross-origin TradingView Advanced Chart and full-screen control | Website PR #1: views.js | done; real-device rendering pending |

@@ -1,0 +1,3 @@
+# pack.py writes its statements outside the repository; these lines are a second lock on the same door.
+out/
+s[0-9][0-9].sql
