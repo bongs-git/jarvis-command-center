@@ -128,6 +128,22 @@ Checks: `supabase/checks/atlas_test.ts` uses a stand-in knowledge base with made
 
 Checks: `supabase/checks/idea_test.ts`, and `deno run -A supabase/checks/idea-wiring.ts "$PWD/supabase/indai-brain/index.ts"` runs the real function against stand-ins. Not yet seen with real requests: all of it. The brain's bundle is now thirteen files: the twelve listed under "The atlas" plus `indai-brain/idea.ts`.
 
+## Her hosted voice (`indai-voice`)
+
+The owner, November 20, 2026: "She sounds to robotic. And i can't even download the actual voice we had created", and, offered ElevenLabs or Cartesia, "The best vocal engine one". Version 1 went live that day at 5:49 PM New York time (read back, identical to the repository) with migration `20261120224738_indai_voice.sql`. Until he saves `ELEVENLABS_API_KEY` it answers `configured:false` and every device keeps the voice it had.
+
+Why: the natural voice on the website and the Quest app is a model the device downloads (about 90 MB on a phone) and runs itself. An iPhone's browser is slow at that or fails, and the app then falls back to the phone's built-in voice. With `indai-voice` his devices send her words and get audio back, so nothing is downloaded and every device sounds the same.
+
+How it is set up (`indai-voice/voice.ts`, checked against ElevenLabs' documentation on November 20, 2026): `POST https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream?output_format=mp3_44100_128` with the header `xi-api-key` and `{ text, model_id, previous_text?, next_text? }`; voices from `GET /v2/voices`. The model is `eleven_v4_turbo`, which ElevenLabs describes as its most expressive real-time model (`ELEVENLABS_MODEL` changes it). If ElevenLabs refuses the model for his account, the request is retried once with `eleven_flash_v2_5` and that is used for ten minutes; the answer's `x-indai-voice-model` header says which model spoke.
+
+Her voice is one row in `public.indai_voice`. The first `status` after the key is saved picks a voice from his account (a woman's voice labelled for conversation if there is one) so she can speak at once; he changes it on `indai/voice.html`, which lists the voices in his ElevenLabs account, says a line in any of them, and stores his choice for every device. `ELEVENLABS_VOICE_ID` is used only when no choice is stored.
+
+Cost and its limit: ElevenLabs' price list showed $0.04 per 1,000 characters for this model on November 20, about a cent for a spoken reply. Every `speak` request first takes its characters from the day's allowance (`indai_voice_take`, table `public.indai_voice_days`, New York day): 60,000 a day unless `INDAI_VOICE_DAILY_CHARS` says otherwise, about $2.40 at that price. Past it the answer is `429 voice_daily_limit` and the apps use the device's own voice. `select day, chars, requests from public.indai_voice_days order by day desc limit 7` shows what she has said.
+
+The website's side (`indai/js/cloud-voice.js`) fetches a reply in pieces, the first sentence alone so that she starts quickly, and hands back to the device's own voice when the hosted one is not set up, takes more than nine seconds, is refused or is out of credit; it then leaves it alone for 2 minutes (a passing fault) or 30 (key, voice or credit), and Settings says why.
+
+Not yet seen against ElevenLabs itself: everything. The checks (`supabase/checks/voice_test.ts`; `deno run -A supabase/checks/voice-wiring.ts "$PWD/supabase/indai-voice/index.ts"`; the website's `voice-test.js`) use stand-ins. The first things to look at once the key is in: `status` on the voice page (does it name a voice), the function's log lines for `indai-voice` (a `502` or `409` there is ElevenLabs refusing something: the message returned to the page carries ElevenLabs' own status word), which model the `x-indai-voice-model` header names, and how long a first sentence takes to start on his phone. Not built: her voice for the Siri shortcut (it is read by Siri's voice), and the Quest app's use of this door (Papilo).
+
 ## When CBOE refuses the backend
 
 On November 19 from about 17:25 ET, CBOE answered every request from the functions with 403 (quotes, intraday candles and option chains alike). `indai-market` version 10 keeps the apps supplied with prices and candles from the TradingView bridge in that case: when the CBOE request for a ticker fails, `snapshot` and `bars` answer that ticker from `indai_tv_bars` (`indai-market/bridge.ts`), marked `source: "TradingView bridge"`, `delay: 0`. While CBOE answers, nothing changes. During regular trading a bridge quote is only given if the newest stored candle is at most ten minutes old, so an old candle is never shown as the current price; outside regular trading the last stored candle is given with its own timestamp. Tickers the bridge does not send, and all option chains, still fail as before.
@@ -178,6 +194,8 @@ The owner saved `PERPLEXITY_API_KEY` on November 20 between 4:25 and 5:30 PM New
 | `INDAI_SECOND_OPINION=off` | Optional. Keeps the research and the stand-in but skips the second read of every idea. |
 | `INDAI_SECOND_MODEL` | Optional. The model for ChatGPT's part, default `gpt-6.1-sol`. |
 | `INDAI_RESEARCH_EFFORT`, `INDAI_RESEARCH_EFFORT_DEEP` | Optional. Perplexity's effort level for a fast idea (default `fast`) and a deep one (default `low`). |
+| `ELEVENLABS_API_KEY` | Optional. Switches on INDAI's hosted voice (`indai-voice`). Created at elevenlabs.io on a paid plan; the key needs Text to Speech and read access to Voices. |
+| `ELEVENLABS_MODEL`, `ELEVENLABS_VOICE_ID`, `INDAI_VOICE_DAILY_CHARS` | Optional. The voice model (default `eleven_v4_turbo`), a voice to use when none has been chosen on the voice page, and the most characters she may speak in a New York day (default 60,000). |
 | `INDAI_PASSCODE` | Set an owner-chosen secret in Edge Function Secrets, then enter it in the original headset's settings for signed-out access to private memory. |
 | `INDAI_DAILY_TOKEN_BUDGET` | Optional override for the default 250,000-token New York calendar day. |
 | `INDAI_STT_PROVIDER=deepgram`, `DEEPGRAM_API_KEY` | Enable the optional server transcription adapter after selecting the provider. |
