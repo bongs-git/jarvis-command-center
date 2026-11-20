@@ -1,5 +1,5 @@
 // The command-center screens.
-import { Panel, C, F, text, rrect, fmtPrice, fmtPct, fmtMoney, colorFor, hexA } from './hud.js';
+import { Panel, C, F, S, text, rrect, fmtPrice, fmtPct, fmtMoney, colorFor, hexA } from './hud.js';
 import { ema, vwap, fmtClock, fmtDuration, fmtHM, marketStatus, chartSession, INTERVAL_LABEL } from './market.js';
 import { LEADLAG } from './feeds.js';
 import { pnlGrid, positionSummary } from './options.js';
@@ -23,17 +23,20 @@ function para(ctx, str, x, y, maxW, { size = 22, lh = 1.35, color = C.text, weig
   lines.forEach((l, i) => text(ctx, l, x, y + i * size * lh, { size, color, weight }));
   return lines.length * size * lh;
 }
-function dot(ctx, x, y, r, color, glow = true) {
-  if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 12; }
+function dot(ctx, x, y, r, color) {
   ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-  ctx.shadowBlur = 0;
 }
+// The brand logo, drawn on the top bar like the website's header.
+const LOGO = new Image(); let logoReady = false;
+LOGO.onload = () => { logoReady = true; for (const f of logoWaiters) f(); };
+const logoWaiters = [];
+LOGO.src = './brand/indai-logo-clear.png';
 function pill(ctx, x, y, label, color, { size = 20, align = 'left' } = {}) {
   ctx.font = `600 ${size}px ${F.hud}`;
   const w = ctx.measureText(label).width + size * 1.2, h = size * 1.6;
   const x0 = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x;
-  rrect(ctx, x0, y, w, h, h / 2); ctx.fillStyle = hexA(color, 0.16); ctx.fill();
-  ctx.strokeStyle = hexA(color, 0.55); ctx.lineWidth = 1.5; ctx.stroke();
+  rrect(ctx, x0, y, w, h, h / 2); ctx.fillStyle = hexA(color, 0.10); ctx.fill();
+  ctx.strokeStyle = hexA(color, 0.45); ctx.lineWidth = 2; ctx.stroke();
   text(ctx, label, x0 + w / 2, y + h / 2 + 1, { size, weight: 600, color, align: 'center', base: 'middle' });
   return w;
 }
@@ -50,12 +53,16 @@ function sparkline(ctx, bars, x, y, w, h, base) {
   if (base != null && base >= lo && base <= hi) { ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.setLineDash([4, 6]); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, yv(base)); ctx.lineTo(x + w, yv(base)); ctx.stroke(); ctx.setLineDash([]); }
   const up = bars[bars.length - 1].c >= (base ?? bars[0].o);
   const col = up ? C.up : C.down;
-  const grad = ctx.createLinearGradient(0, y, 0, y + h); grad.addColorStop(0, hexA(col, 0.25)); grad.addColorStop(1, hexA(col, 0));
-  ctx.beginPath(); bars.forEach((b, k) => { const xx = x + (k / (bars.length - 1)) * w; k ? ctx.lineTo(xx, yv(b.c)) : ctx.moveTo(xx, yv(b.c)); });
-  ctx.lineTo(x + w, y + h); ctx.lineTo(x, y + h); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
-  ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.beginPath();
+  ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.beginPath();
   bars.forEach((b, k) => { const xx = x + (k / (bars.length - 1)) * w; k ? ctx.lineTo(xx, yv(b.c)) : ctx.moveTo(xx, yv(b.c)); });
   ctx.stroke();
+}
+// Chart labels sit on a dark backing so they never fight the candles (website chart.js).
+function chartLabel(ctx, str, x, y, { size = 19, color = C.text, align = 'left', weight = 600 } = {}) {
+  ctx.font = `${weight} ${size}px ${F.hud}`;
+  const w = ctx.measureText(str).width, x0 = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x;
+  ctx.fillStyle = 'rgba(5,7,9,0.72)'; ctx.fillRect(x0 - 5, y - size * 0.95, w + 10, size * 1.3);
+  text(ctx, str, x, y, { size, weight, color, align });
 }
 function niceStep(raw) {
   const p = Math.pow(10, Math.floor(Math.log10(raw || 1)));
@@ -65,13 +72,13 @@ function niceStep(raw) {
 
 // ---------------------------------------------------------------- top bar
 export class TopBar extends Panel {
-  constructor(app) { super({ id: 'top', w: 1.30, h: 0.13, header: false }); this.app = app; }
+  constructor(app) { super({ id: 'top', w: 1.30, h: 0.13, header: false }); this.app = app; if (!logoReady) logoWaiters.push(() => { this.dirty = true; }); }
   drawBody(ctx) {
     const { W, app } = this;
     const ms = marketStatus();
-    dot(ctx, 44, 62, 11, C.line);
-    text(ctx, 'INDAI', 68, 76, { size: 46, weight: 600, color: C.white, spacing: 2 });
-    text(ctx, `Command Center · ${app.settings.name || ''}`, 70, 112, { size: 21, weight: 500, color: C.dim, max: 360 });
+    if (logoReady) { const lh = 50, lw = lh * LOGO.width / LOGO.height; ctx.drawImage(LOGO, 34, 30, lw, lh); }
+    else text(ctx, 'INDAI', 34, 72, { size: 44, weight: 700, color: C.white, spacing: 2 });
+    text(ctx, `Command Center${app.settings.name ? ' · ' + app.settings.name : ''}`, 36, 112, { size: 20, weight: 500, color: C.dim, max: 360 });
     text(ctx, fmtClock() + ' ET', W / 2, 66, { size: 44, weight: 500, fam: F.mono, color: C.white, align: 'center' });
     const stColor = ms.state === 'open' ? C.up : ms.state === 'closed' ? C.down : C.amber;
     const label = ms.label.charAt(0) + ms.label.slice(1).toLowerCase();
@@ -82,7 +89,7 @@ export class TopBar extends Panel {
     text(ctx, sub, W / 2, 109, { size: 22, weight: 500, color: stColor, align: 'center', max: 470 });
     const st = app.feed.status;
     const bridge = app.feed.bridgeLive;
-    const [badge, bcol] = st.mode === 'demo' ? ['Demo data', C.amber] : bridge ? ['Live · TradingView', C.up] : st.mode === 'live' ? ['Live', C.up] : ['Delayed ~15 min', C.line];
+    const [badge, bcol] = st.mode === 'demo' ? ['Demo data', C.amber] : bridge ? ['Live · TradingView', C.up] : st.mode === 'live' ? ['Live', C.up] : ['Delayed ~15 min', C.sky];
     pill(ctx, W - 34, 26, badge, bcol, { size: 22, align: 'right' });
     const src = st.mode === 'demo' ? 'Simulated prices' : bridge ? 'TradingView bridge · options from CBOE' : st.mode === 'live' ? `Finnhub ${st.finnhubWs === 'live' ? 'streaming' : st.finnhubWs} · CBOE` : `CBOE ${st.cboe === 'ok' ? 'connected' : st.cboe}`;
     text(ctx, src, W - 34, 110, { size: 19, weight: 500, color: C.faint, align: 'right', max: 330 });
@@ -133,7 +140,7 @@ export function nearestLevel(price, lv) {
 
 // ---------------------------------------------------------------- main chart
 export class MainChart extends Panel {
-  constructor(app) { super({ id: 'chart', title: 'Chart', w: 1.30, h: 0.76 }); this.app = app; this.wantsHoverRedraw = true; this.titleColor = C.gold; }
+  constructor(app) { super({ id: 'chart', title: 'Chart', w: 1.30, h: 0.76 }); this.app = app; this.wantsHoverRedraw = true; this.titleColor = C.white; this.framed = true; }
   prepare() { const s = this.app.settings; this.title = `${s.main} · ${INTERVAL_LABEL[s.interval]}`; }
   drawBody(ctx, a) {
     const app = this.app, s = app.settings, sym = s.main, iv = s.interval;
@@ -207,8 +214,8 @@ export class MainChart extends Panel {
           ctx.beginPath(); ctx.moveTo(xi(pts[k].i), yv(A)); ctx.lineTo(xi(pts[k + 1].i), yv(A2)); ctx.lineTo(xi(pts[k + 1].i), yv(B2)); ctx.lineTo(xi(pts[k].i), yv(B)); ctx.closePath(); ctx.fill();
         }
       };
-      cloud(e34, e50, 'rgba(90,209,255,0.12)', 'rgba(251,146,60,0.12)');
-      cloud(e5, e12, 'rgba(52,211,153,0.20)', 'rgba(248,113,113,0.20)');
+      cloud(e34, e50, 'rgba(110,195,242,0.13)', 'rgba(240,150,74,0.13)');
+      cloud(e5, e12, 'rgba(62,207,142,0.22)', 'rgba(242,112,107,0.22)');
     }
     const bw = Math.max(1.5, cw * 0.66);
     for (const p of pts) {
@@ -217,31 +224,31 @@ export class MainChart extends Panel {
       ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.2, Math.min(2.5, cw * 0.15));
       ctx.beginPath(); ctx.moveTo(x, yv(b.h)); ctx.lineTo(x, yv(b.l)); ctx.stroke();
       const y1 = yv(Math.max(b.o, b.c)), y2 = yv(Math.min(b.o, b.c));
-      ctx.fillStyle = up ? hexA(C.up, 0.9) : hexA(C.down, 0.9);
+      ctx.fillStyle = up ? C.up : C.down;
       ctx.fillRect(x - bw / 2, y1, bw, Math.max(1.5, y2 - y1));
     }
     if (s.show.vwap) {
-      ctx.strokeStyle = C.gold; ctx.lineWidth = 2.5; ctx.setLineDash([10, 6]); ctx.beginPath();
+      ctx.strokeStyle = C.gold; ctx.lineWidth = 1.5 * S; ctx.setLineDash([6 * S, 4 * S]); ctx.beginPath();
       pts.forEach((p, k) => { const x = xi(p.i), y = yv(vw[k]); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
       ctx.stroke(); ctx.setLineDash([]);
-      text(ctx, 'VWAP', xi(pts[pts.length - 1].i) - 10, yv(vw[vw.length - 1]) + 26, { size: 19, weight: 600, color: C.gold, align: 'right' });
+      chartLabel(ctx, 'VWAP', xi(pts[pts.length - 1].i) - 10, yv(vw[vw.length - 1]) + 26, { size: 19, color: C.gold, align: 'right' });
     }
     if (lv) {
       for (const l of lines) {
         if (l.v > hi || l.v < lo) { if (l.w > 2) offscreen.push(`${l.name} ${fmtPrice(l.v)} ${l.v > hi ? '↑' : '↓'}`); continue; }
         const y = yv(l.v);
-        ctx.strokeStyle = l.col; ctx.lineWidth = l.w; ctx.setLineDash(l.dotted ? [3, 7] : [14, 9]);
+        ctx.strokeStyle = l.col; ctx.lineWidth = l.w; ctx.setLineDash(l.dotted ? [3, 7] : [9 * S, 6 * S]);
         ctx.beginPath(); ctx.moveTo(plot.x, y); ctx.lineTo(plot.x + plot.w, y); ctx.stroke(); ctx.setLineDash([]);
-        text(ctx, `${l.name} ${fmtPrice(l.v)}`, l.dotted ? plot.x + plot.w - 12 : plot.x + 12, y - 8, { size: l.w > 2 ? 20 : 17, weight: 600, color: l.col, align: l.dotted ? 'right' : 'left' });
+        chartLabel(ctx, `${l.name} ${fmtPrice(l.v)}`, l.dotted ? plot.x + plot.w - 12 : plot.x + 12, y - 8, { size: l.w > 2 ? 20 : 17, color: l.col, align: l.dotted ? 'right' : 'left' });
       }
       if (offscreen.length) text(ctx, offscreen.join('   '), plot.x + plot.w - 12, plot.y + 28, { size: 19, weight: 500, color: C.dim, align: 'right' });
       text(ctx, levelSourceLabel(lv), plot.x + plot.w - 12, plot.y + plot.h - 12, { size: 17, weight: 500, color: lv.source === 'demo' ? C.amber : C.faint, align: 'right' });
     }
     const last = q ? q.last : bars[bars.length - 1].c;
     const ly = yv(Math.min(hi, Math.max(lo, last)));
-    ctx.strokeStyle = C.line; ctx.lineWidth = 1.5; ctx.setLineDash([4, 6]);
+    ctx.strokeStyle = C.sky; ctx.lineWidth = 1.5; ctx.setLineDash([4, 6]);
     ctx.beginPath(); ctx.moveTo(xi(pts[pts.length - 1].i), ly); ctx.lineTo(plot.x + plot.w, ly); ctx.stroke(); ctx.setLineDash([]);
-    rrect(ctx, plot.x + plot.w + 2, ly - 17, 110, 34, 10); ctx.fillStyle = C.line; ctx.fill();
+    rrect(ctx, plot.x + plot.w + 2, ly - 17, 110, 34, 6); ctx.fillStyle = C.sky; ctx.fill();
     text(ctx, fmtPrice(last), plot.x + plot.w + 57, ly + 1, { size: 21, weight: 600, fam: F.mono, color: '#04121c', align: 'center', base: 'middle' });
     const h = this.hover;
     if (h && h.x > plot.x && h.x < plot.x + plot.w && h.y > plot.y && h.y < plot.y + plot.h) {
@@ -254,10 +261,10 @@ export class MainChart extends Panel {
         ctx.beginPath(); ctx.moveTo(plot.x, h.y); ctx.lineTo(plot.x + plot.w, h.y); ctx.stroke();
         const b = best.b;
         const line = `${fmtHM(b.t)}  O ${fmtPrice(b.o)}  H ${fmtPrice(b.h)}  L ${fmtPrice(b.l)}  C ${fmtPrice(b.c)}  V ${fmtVol(b.v)}`;
-        rrect(ctx, plot.x + 8, plot.y + 8, plot.w * 0.74, 40, 12); ctx.fillStyle = 'rgba(6,10,18,0.9)'; ctx.fill();
+        rrect(ctx, plot.x + 8, plot.y + 8, plot.w * 0.74, 40, 9); ctx.fillStyle = 'rgba(5,7,9,0.92)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 2; ctx.stroke();
         text(ctx, line, plot.x + 22, plot.y + 36, { size: 21, weight: 500, fam: F.mono, color: C.white, max: plot.w * 0.72 - 24 });
         const pv = lo + ((plot.y + plot.h - h.y) / plot.h) * (hi - lo);
-        rrect(ctx, plot.x + plot.w + 2, h.y - 15, 110, 30, 10); ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fill();
+        rrect(ctx, plot.x + plot.w + 2, h.y - 15, 110, 30, 6); ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fill();
         text(ctx, fmtPrice(pv), plot.x + plot.w + 57, h.y + 1, { size: 19, weight: 600, fam: F.mono, color: '#04121c', align: 'center', base: 'middle' });
       }
     }
@@ -332,12 +339,12 @@ export class Levels extends Panel {
     }
     const rows = [['cw', 'Call wall', C.up], ['zg', 'Gamma flip', C.amber], ['pw', 'Put wall', C.down]]
       .filter(r => lv[r[0]] != null).map(r => ({ k: r[0], name: r[1], col: r[2], v: lv[r[0]] }));
-    if (q) rows.push({ k: 'px', name: 'Price', col: C.line, v: q.last });
+    if (q) rows.push({ k: 'px', name: 'Price', col: C.sky, v: q.last });
     rows.sort((x, y) => y.v - x.v);
     const rh = Math.min(46, (a.h - 70) / rows.length);
     rows.forEach((r, i) => {
       const y = a.y + 8 + i * rh + rh / 2;
-      if (r.k === 'px') { rrect(ctx, a.x - 6, y - rh / 2 + 3, a.w + 12, rh - 6, 12); ctx.fillStyle = 'rgba(90,209,255,0.10)'; ctx.fill(); }
+      if (r.k === 'px') { rrect(ctx, a.x - 6, y - rh / 2 + 3, a.w + 12, rh - 6, 12); ctx.fillStyle = 'rgba(110,195,242,0.08)'; ctx.fill(); }
       dot(ctx, a.x + 10, y - 2, 6, r.col, r.k === 'px');
       text(ctx, r.name, a.x + 30, y + 7, { size: 24, weight: 500, color: r.k === 'px' ? C.white : C.text });
       text(ctx, fmtPrice(r.v), a.x + a.w * 0.64, y + 7, { size: 25, weight: 500, fam: F.mono, color: C.white, align: 'right' });
@@ -385,8 +392,8 @@ export class RiskBreaker extends Panel {
     this.button('undo', a.x + a.w - 124, y, 124, 56, 'Undo', { size: 23, color: C.dim, disabled: !day.trades.length, onClick: () => app.undoTrade() });
     y += 68;
     const half = (a.w - 14) / 2;
-    this.button('win', a.x, y, half, 64, `Win +${fmtMoney(amt)}`, { size: 26, color: C.up, onClick: () => app.logTrade(amt) });
-    this.button('loss', a.x + half + 14, y, half, 64, `Loss −${fmtMoney(amt)}`, { size: 26, color: C.down, onClick: () => app.logTrade(-amt) });
+    this.button('win', a.x, y, half, 64, `Win +${fmtMoney(amt)}`, { size: 26, color: C.up, tone: true, onClick: () => app.logTrade(amt) });
+    this.button('loss', a.x + half + 14, y, half, 64, `Loss −${fmtMoney(amt)}`, { size: 26, color: C.down, tone: true, onClick: () => app.logTrade(-amt) });
     y += 84;
     ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(a.x, y); ctx.lineTo(a.x + a.w, y); ctx.stroke();
     y += 10;
@@ -417,7 +424,7 @@ export class IndaiPanel extends Panel {
   constructor(app) { super({ id: 'indai', title: 'INDAI', w: 0.70, h: 0.80 }); this.app = app; }
   drawBody(ctx, a) {
     const ind = this.app.indai, vs = ind.voice.state;
-    const [st, col] = vs.listening ? ['Listening…', C.amber] : vs.transcribing ? ['Understanding…', C.violet] : ind.thinking ? [ind.thinking, C.line] : vs.speaking ? ['Speaking', C.up] : ['Ready', C.dim];
+    const [st, col] = vs.listening ? ['Listening…', C.amber] : vs.transcribing ? ['Understanding…', C.violet] : ind.thinking ? [ind.thinking, C.violet] : vs.speaking ? ['Speaking', C.up] : ['Ready', C.dim];
     pill(ctx, this.W - 30, 14, st, col, { size: 20, align: 'right' });
     this.button('selftest', 150, 12, 150, 38, ind._testing ? 'Testing…' : 'Self-test', { size: 18, color: C.line, disabled: !!ind._testing, onClick: () => ind.selfTest() });
     this.button('gestures', 310, 12, 150, 38, 'Gestures', { size: 18, color: C.violet, active: !!this.app.tutorial, onClick: () => this.app.tutorial ? this.app.endTutorial(false) : this.app.startTutorial() });
@@ -441,7 +448,7 @@ export class IndaiPanel extends Panel {
       text(ctx, `${sig.sym} · ${sig.title}`, a.x + 18, y + 92, { size: 24, weight: 600, color: C.white, max: a.w - 36 });
       const k = sig.contract;
       text(ctx, k ? `${k.strike}${sig.type} ${k.expiry.slice(5)} ≈ $${k.premium.toFixed(2)} × ${k.qty} · stop ${sig.stop} · target ${sig.target}` : `stop ${sig.stop} · target ${sig.target}`, a.x + 18, y + 128, { size: 20, weight: 500, fam: F.mono, color: C.text, max: a.w - 36 });
-      this.button('sig-an', a.x + 18, y + 158, 170, 44, 'Analyze', { size: 20, color: sc, onClick: () => this.app.indai.analyzeSignal(sig) });
+      this.button('sig-an', a.x + 18, y + 158, 170, 44, 'Analyze', { size: 20, primary: true, onClick: () => this.app.indai.analyzeSignal(sig) });
       this.button('sig-skip', a.x + 198, y + 158, 130, 44, 'Skip', { size: 20, color: C.dim, onClick: () => { sig.at = 0; this.dirty = true; } });
       y += 232;
     } else if (an) {
@@ -487,9 +494,8 @@ export class AnalysisPanel extends Panel {
     const rag = an.final?.rag || an.score.rag, rc = RAGC[rag] || C.dim;
     const L = { x: a.x, w: 520 }, R = { x: a.x + 560, w: a.w - 560 };
     let y = a.y;
-    ctx.shadowColor = rc; ctx.shadowBlur = 30;
-    rrect(ctx, L.x, y, L.w, 120, 26); ctx.fillStyle = hexA(rc, 0.16); ctx.fill(); ctx.shadowBlur = 0;
-    ctx.strokeStyle = hexA(rc, 0.7); ctx.lineWidth = 2.5; ctx.stroke();
+    rrect(ctx, L.x, y, L.w, 120, 10 * S); ctx.fillStyle = hexA(rc, 0.10); ctx.fill();
+    ctx.strokeStyle = hexA(rc, 0.5); ctx.lineWidth = 2; ctx.stroke();
     text(ctx, rag, L.x + 30, y + 78, { size: 58, weight: 700, color: rc });
     text(ctx, `${an.score.score}/100`, L.x + L.w - 26, y + 54, { size: 30, weight: 600, fam: F.mono, color: C.white, align: 'right' });
     text(ctx, an.final ? `research ${an.final.confidence ?? '—'}% confident` : an.pendingAI ? 'researching news…' : 'quant read', L.x + L.w - 26, y + 90, { size: 19, weight: 500, color: C.dim, align: 'right' });
@@ -659,8 +665,8 @@ export class DeepDivePanel extends Panel {
       text(ctx, 'Headlines', rx, ry + 24, { size: 21, weight: 600, color: C.dim }); ry += 34;
       for (const n of d.news.slice(0, 5)) { if (ry > a.y + a.h - 90) break; const nc = n.sentiment === 'positive' ? C.up : n.sentiment === 'negative' ? C.down : C.faint; dot(ctx, rx + 6, ry + 14, 5, nc, false); ry += para(ctx, n.title, rx + 20, ry + 20, half - 20, { size: 19, maxLines: 2 }) + 6; }
     }
-    this.button('ac', a.x, a.y + a.h - 50, 220, 48, `Analyze ${d.sym} calls`, { size: 20, color: C.up, onClick: () => app.indai.quickIdea(d.sym, 'C') });
-    this.button('ap', a.x + 236, a.y + a.h - 50, 220, 48, `Analyze ${d.sym} puts`, { size: 20, color: C.down, onClick: () => app.indai.quickIdea(d.sym, 'P') });
+    this.button('ac', a.x, a.y + a.h - 50, 220, 48, `Analyze ${d.sym} calls`, { size: 20, color: C.up, tone: true, onClick: () => app.indai.quickIdea(d.sym, 'C') });
+    this.button('ap', a.x + 236, a.y + a.h - 50, 220, 48, `Analyze ${d.sym} puts`, { size: 20, color: C.down, tone: true, onClick: () => app.indai.quickIdea(d.sym, 'P') });
     this.button('main', a.x + 472, a.y + a.h - 50, 220, 48, 'Put on main chart', { size: 20, onClick: () => { app.selectSymbol(d.sym); app.closeFocus(); } });
   }
 }
@@ -716,7 +722,7 @@ export class PlanPanel extends Panel {
     const L = { x: a.x, w: 500 }, R = { x: a.x + 540, w: a.w - 540 };
     // temperature
     let y = a.y;
-    const tc = !tmp ? C.dim : tmp.label === 'Hot' ? C.down : tmp.label === 'Warm' ? C.amber : tmp.label === 'Calm' ? C.line : C.up;
+    const tc = !tmp ? C.dim : tmp.label === 'Hot' ? C.down : tmp.label === 'Warm' ? C.amber : tmp.label === 'Calm' ? C.sky : C.up;
     rrect(ctx, L.x, y, L.w, a.h - 4, 24); ctx.fillStyle = hexA(tc, 0.07); ctx.fill(); ctx.strokeStyle = hexA(tc, 0.35); ctx.lineWidth = 2; ctx.stroke();
     text(ctx, 'Market temperature', L.x + 22, y + 40, { size: 22, weight: 600, color: C.dim });
     if (!tmp) { text(ctx, app.tempLoading ? 'Reading the market…' : 'Not checked yet', L.x + 22, y + 100, { size: 30, weight: 600, color: C.dim }); }
@@ -768,7 +774,7 @@ export class PlanPanel extends Panel {
     const warn = p.warnings[0] || PROFILES[d.aggr].note;
     para(ctx, warn, R.x, y + 20, R.w, { size: 20, color: p.warnings[0] ? C.amber : C.dim, maxLines: 2 });
     const locked = app.day.plan && app.day.plan.capital === d.capital && app.day.plan.goal === d.goal && app.day.plan.aggr === d.aggr && app.day.plan.strategies.join() === d.strategies.join();
-    this.button('lock', R.x, a.y + a.h - 64, 300, 56, locked ? '✓ Plan locked in' : 'Lock in plan', { size: 24, active: locked, color: C.up, onClick: () => app.lockPlan() });
+    this.button('lock', R.x, a.y + a.h - 64, 300, 56, locked ? '✓ Plan locked in' : 'Lock in plan', { size: 24, active: locked, primary: !locked, color: C.up, onClick: () => app.lockPlan() });
     this.button('voice', R.x + 316, a.y + a.h - 64, 300, 56, 'Set it by voice', { size: 22, color: C.line, onClick: () => app.indai.startDay({ voice: true, skipTemp: !!app.temp }) });
   }
 }
@@ -842,7 +848,7 @@ export class ScenesPanel extends Panel {
 // ---------------------------------------------------------------- Gesture tutorial coach (floats beside the chart)
 function drawHand(ctx, cx, cy, s, mode, flip = 1) {
   ctx.save(); ctx.translate(cx, cy); ctx.scale(flip, 1);
-  ctx.strokeStyle = C.text; ctx.fillStyle = 'rgba(159,230,255,0.18)'; ctx.lineWidth = s * 0.09; ctx.lineCap = 'round';
+  ctx.strokeStyle = C.text; ctx.fillStyle = 'rgba(110,195,242,0.14)'; ctx.lineWidth = s * 0.09; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.ellipse(0, s * 0.25, s * 0.34, s * 0.32, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   const fingers = mode === 'spread' ? [-60, -28, -4, 20, 46] : mode === 'fist' ? null : [-70, -14, -2, 10, 22];
   if (mode === 'point') {
@@ -877,7 +883,7 @@ function drawGestureFrame(ctx, icon, phase, x, y, w, h) {
       for (const side of [-1, 1]) {   // two Touch controllers: a round face with a thumbstick, a grip below
         const ox = cx + side * s * 0.36, oy = cy - s * 0.12;
         ctx.save(); ctx.translate(ox, oy); ctx.rotate(side * 0.22);
-        ctx.lineWidth = 4; ctx.strokeStyle = C.text; ctx.fillStyle = 'rgba(159,230,255,0.12)';
+        ctx.lineWidth = 4; ctx.strokeStyle = C.text; ctx.fillStyle = 'rgba(110,195,242,0.10)';
         rrect(ctx, -s * 0.09, s * 0.08, s * 0.18, s * 0.5, s * 0.09); ctx.fill(); ctx.stroke();
         ctx.beginPath(); ctx.ellipse(0, 0, s * 0.24, s * 0.19, 0, 0, 7); ctx.fill(); ctx.stroke();
         ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(-side * s * 0.08, -s * 0.01, s * 0.075, 0, 7); ctx.stroke();          // thumbstick ring
@@ -890,7 +896,7 @@ function drawGestureFrame(ctx, icon, phase, x, y, w, h) {
     else { drawHand(ctx, cx, cy + s * 0.2, s * 0.95, 'open'); ctx.fillStyle = C.line; for (const [dx, dy] of [[-0.47, -0.25], [-0.2, -0.62], [0.02, -0.66], [0.2, -0.6], [0.36, -0.48]]) { ctx.beginPath(); ctx.arc(cx + dx * s * 0.95, cy + s * 0.2 + dy * s * 0.95, 5, 0, 7); ctx.fill(); } }
   } else if (icon === 'pinch') {
     drawHand(ctx, cx, cy + s * 0.25, s * 1.0, fin ? 'pinch' : 'point');
-    if (!fin) { ctx.strokeStyle = 'rgba(90,209,255,0.6)'; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(cx - s * 0.16, cy - s * 0.48); ctx.lineTo(cx - s * 0.16, y + 14); ctx.stroke(); ctx.setLineDash([]); }
+    if (!fin) { ctx.strokeStyle = 'rgba(110,195,242,0.6)'; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(cx - s * 0.16, cy - s * 0.48); ctx.lineTo(cx - s * 0.16, y + 14); ctx.stroke(); ctx.setLineDash([]); }
   } else if (icon === 'drag') {
     if (!fin) { miniScreen(ctx, x + w * 0.12, y + h * 0.16, w * 0.46, h * 0.34); drawHand(ctx, x + w * 0.38, y + h * 0.66, s * 0.62, 'pinch'); }
     else { miniScreen(ctx, x + w * 0.12, y + h * 0.16, w * 0.46, h * 0.34, 'rgba(255,255,255,0.18)', true); miniScreen(ctx, x + w * 0.46, y + h * 0.26, w * 0.46, h * 0.34, C.line); drawHand(ctx, x + w * 0.74, y + h * 0.76, s * 0.62, 'open'); }
@@ -905,11 +911,10 @@ function drawGestureFrame(ctx, icon, phase, x, y, w, h) {
     else { drawHand(ctx, x + w * 0.16, cy + 10, s * 0.62, 'open', -1); drawHand(ctx, x + w * 0.84, cy + 10, s * 0.62, 'open'); for (let k = 0; k < 3; k++) miniScreen(ctx, x + w * (0.3 + k * 0.14), y + 12, w * 0.12, h * 0.16, C.line); text(ctx, 'wider than shoulders', cx, y + h - 12, { size: 18, weight: 600, color: C.dim, align: 'center' }); }
   } else if (icon === 'orb') {
     const ox = cx + s * 0.1, oy = y + h * 0.28;
-    const g = ctx.createRadialGradient(ox, oy, 3, ox, oy, s * 0.42); g.addColorStop(0, '#e6fbff'); g.addColorStop(0.45, 'rgba(90,209,255,0.8)'); g.addColorStop(1, 'rgba(90,209,255,0)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ox, oy, s * 0.42, 0, 7); ctx.fill();
+    ctx.fillStyle = hexA(C.gold, 0.18); ctx.beginPath(); ctx.arc(ox, oy, s * 0.36, 0, 7); ctx.fill(); ctx.strokeStyle = C.gold; ctx.lineWidth = 3; ctx.stroke(); ctx.fillStyle = C.gold; ctx.beginPath(); ctx.arc(ox, oy, s * 0.12, 0, 7); ctx.fill();
     drawHand(ctx, cx - s * 0.3, y + h * 0.78, s * 0.6, fin ? 'pinch' : 'point');
-    if (!fin) { ctx.strokeStyle = 'rgba(90,209,255,0.6)'; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(cx - s * 0.4, y + h * 0.58); ctx.lineTo(ox - 8, oy + 10); ctx.stroke(); ctx.setLineDash([]); }
-    else { rrect(ctx, x + w * 0.52, y + h * 0.58, w * 0.44, 40, 14); ctx.fillStyle = 'rgba(240,198,116,0.2)'; ctx.fill(); text(ctx, '“brief me”', x + w * 0.74, y + h * 0.58 + 27, { size: 19, weight: 600, color: C.gold, align: 'center' }); }
+    if (!fin) { ctx.strokeStyle = 'rgba(110,195,242,0.6)'; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(cx - s * 0.4, y + h * 0.58); ctx.lineTo(ox - 8, oy + 10); ctx.stroke(); ctx.setLineDash([]); }
+    else { rrect(ctx, x + w * 0.52, y + h * 0.58, w * 0.44, 40, 14); ctx.fillStyle = 'rgba(220,191,110,0.12)'; ctx.fill(); text(ctx, '“brief me”', x + w * 0.74, y + h * 0.58 + 27, { size: 19, weight: 600, color: C.gold, align: 'center' }); }
   }
 }
 // START -> FINISH, with the start lit once INDAI sees you in position and the finish lit when the gesture lands.
@@ -948,12 +953,12 @@ export class CoachPanel extends Panel {
     const fresh = hi.at && performance.now() - hi.at < 600 && (hi.left || hi.right);
     const name = (p) => p ? ({ pinch: 'pinch', fist: 'fist', spread: 'fingers wide', open: 'open', relaxed: 'relaxed' }[p] || p) : 'not seen';
     const line = !app.inXR ? 'Live hand tracking works in the headset.' : fresh ? `Left: ${name(hi.left)} · Right: ${name(hi.right)}${hi.dist != null ? ` · ${Math.round(hi.dist * 100)} cm apart` : ''}` : 'No hands seen yet. Set the controllers down.';
-    rrect(ctx, a.x, a.y + a.h - 108, a.w, 46, 14); ctx.fillStyle = 'rgba(90,209,255,0.08)'; ctx.fill();
-    text(ctx, line, a.x + 16, a.y + a.h - 77, { size: 20, weight: 500, fam: F.mono, color: fresh ? C.line : C.dim, max: a.w - 32 });
+    rrect(ctx, a.x, a.y + a.h - 108, a.w, 46, 14); ctx.fillStyle = 'rgba(110,195,242,0.08)'; ctx.fill();
+    text(ctx, line, a.x + 16, a.y + a.h - 77, { size: 20, weight: 500, fam: F.mono, color: fresh ? C.sky : C.dim, max: a.w - 32 });
     const bw = (a.w - 24) / 3, by = a.y + a.h - 50;
     this.button('back', a.x, by, bw, 48, 'Back', { size: 21, disabled: t.i === 0, onClick: () => app.tutorialGo(-1) });
     this.button('again', a.x + bw + 12, by, bw, 48, 'Say it again', { size: 21, onClick: () => app.indai.say(`${st.title}. ${st.lines.join(' ')}`, 'info', { log: false }) });
-    this.button('next', a.x + (bw + 12) * 2, by, bw, 48, t.i === app.tutorialSteps.length - 1 ? 'Finish' : app.inXR ? 'Skip' : 'Next', { size: 21, color: C.gold, onClick: () => app.tutorialGo(1) });
+    this.button('next', a.x + (bw + 12) * 2, by, bw, 48, t.i === app.tutorialSteps.length - 1 ? 'Finish' : app.inXR ? 'Skip' : 'Next', { size: 21, primary: true, onClick: () => app.tutorialGo(1) });
   }
 }
 
@@ -964,7 +969,7 @@ export class Dock extends Panel {
     const app = this.app, W = this.W, H = this.H, vs = app.indai.voice.state;
     const y = 20, h = H - 40;
     const items = [
-      ['talk', vs.listening ? 'Listening… tap to stop' : 'Talk to INDAI', 2.0, { color: C.line, active: vs.listening, onClick: () => app.talk(), disabled: !app.indai.voice.canListen }],
+      ['talk', vs.listening ? 'Listening… tap to stop' : 'Talk to INDAI', 2.0, { color: C.line, active: vs.listening, primary: !vs.listening, onClick: () => app.talk(), disabled: !app.indai.voice.canListen }],
       ['brief', 'Brief me', 1.05, { color: C.gold, onClick: () => app.brief() }],
       ['plan', app.day.plan ? 'Plan' : 'Start day', 1.0, { color: app.day.plan ? C.text : C.up, active: !app.day.plan, onClick: () => app.openPlan() }],
       ['calc', 'Calculator', 1.15, { onClick: () => app.openCalc() }],

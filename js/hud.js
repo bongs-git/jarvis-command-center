@@ -1,17 +1,22 @@
 // Canvas-rendered holographic panels. Each panel is a flat mesh whose texture is redrawn when data changes.
 import * as THREE from 'three';
 
+// The website's palette (bongs-git.github.io/indai, css/app.css). Gold marks brand, primary and selected;
+// sky is only for the last-price tag and neutral info. No glow, no gradients.
 export const C = {
-  bg: 'rgba(9,14,24,0.80)', bg2: 'rgba(16,24,38,0.90)', bg3: 'rgba(24,34,52,0.95)',
-  line: '#5ad1ff', lineDim: 'rgba(90,209,255,0.30)', lineFaint: 'rgba(255,255,255,0.07)',
-  text: '#eef4fb', dim: '#9aa8bb', faint: '#66758a',
-  gold: '#f0c674', goldDim: 'rgba(240,198,116,0.35)',
-  up: '#34d399', down: '#f87171', amber: '#fbbf24', violet: '#a78bfa', white: '#f8fbff',
-  grid: 'rgba(255,255,255,0.06)',
+  ink: '#050709', bg: '#0a0e14', bg2: '#111721', bg3: '#18202c',
+  hair: 'rgba(255,255,255,0.08)', hair2: 'rgba(255,255,255,0.15)',
+  line: '#dcbf6e', lineDim: 'rgba(220,191,110,0.5)', lineFaint: 'rgba(255,255,255,0.08)',
+  text: '#f3f1ea', dim: '#9aa3b2', faint: '#5f6a7a',
+  gold: '#dcbf6e', goldDim: 'rgba(220,191,110,0.5)', goldWash: 'rgba(220,191,110,0.12)', goldInk: '#17120a',
+  up: '#3ecf8e', down: '#f2706b', amber: '#f0b34a', sky: '#6ec3f2', violet: '#a99bf5', white: '#fcfbf5',
+  grid: 'rgba(255,255,255,0.055)',
 };
+// The website is drawn at about 14px body text; panels here are drawn at about 1.85x that, so 1 website px = S canvas px.
+export const S = 1.85;
 export const F = {
-  hud: "'Geist', 'Inter', 'Segoe UI', Roboto, system-ui, sans-serif",
-  mono: "'Geist Mono', 'JetBrains Mono', 'Roboto Mono', monospace",
+  hud: "Geist, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+  mono: "'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace",
 };
 export const PPM = 1100; // canvas pixels per meter
 
@@ -46,6 +51,15 @@ export function rrect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
 
+// The logo's viewfinder: four short gold corner brackets. On the website it frames the chart and nothing else.
+export function frameCorners(ctx, x, y, w, h, len = 20 * S, t = 2 * S) {
+  ctx.fillStyle = C.gold;
+  for (const [cx, cy, dx, dy] of [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]]) {
+    ctx.fillRect(dx > 0 ? cx : cx - len, dy > 0 ? cy : cy - t, len, t);
+    ctx.fillRect(dx > 0 ? cx : cx - t, dy > 0 ? cy : cy - len, t, len);
+  }
+}
+
 export class Panel {
   constructor({ id, title = '', w, h, header = true, resolution = PPM }) {
     this.id = id; this.title = title; this.w = w; this.h = h; this.header = header;
@@ -65,7 +79,7 @@ export class Panel {
     this.hover = null;      // {x, y} in canvas px while a pointer is over the panel
     this.hoverBtn = null;
     this.pressed = null;
-    this.headerH = header ? 62 : 0;
+    this.headerH = header ? 60 : 0;
     this.dirty = true;
     this.flash = 0;         // alert flash intensity 0..1
     this.accent = C.line;
@@ -73,17 +87,23 @@ export class Panel {
 
   setAnisotropy(a) { this.tex.anisotropy = a; }
 
-  button(id, x, y, w, h, label, { active = false, color = C.line, disabled = false, size = 26, onClick, fill } = {}) {
+  // Buttons as on the website: hairline-bordered, nearly flat. `primary` is solid gold; a selected (active) button is a
+  // wash of its colour with that colour's text; `tone` buttons (win/loss) always carry their colour at 10%.
+  button(id, x, y, w, h, label, { active = false, color = C.line, disabled = false, size = 26, onClick, fill, primary = false, tone = false } = {}) {
     const ctx = this.ctx;
     const hov = this.hoverBtn === id && !disabled;
     const prs = this.pressed === id && !disabled;
-    rrect(ctx, x, y, w, h, Math.min(16, h / 2));
-    ctx.fillStyle = fill ? fill : active ? hexA(color, 0.26) : prs ? hexA(color, 0.34) : hov ? hexA(color, 0.16) : 'rgba(255,255,255,0.055)';
-    ctx.fill();
-    ctx.lineWidth = active || hov ? 2.5 : 1.5;
-    ctx.strokeStyle = disabled ? 'rgba(255,255,255,0.06)' : active || hov ? hexA(color, 0.95) : 'rgba(255,255,255,0.10)';
-    ctx.stroke();
-    text(ctx, label, x + w / 2, y + h / 2 + 1, { size, weight: 600, color: disabled ? C.faint : active ? C.white : hov ? C.white : C.text, align: 'center', base: 'middle', max: w - 16 });
+    rrect(ctx, x, y, w, h, Math.min(8 * S, h / 2));
+    let bg, border, ink, weight = 500;
+    if (primary) { bg = prs ? '#c9ad5f' : hov ? '#e7cd85' : C.gold; border = C.gold; ink = C.goldInk; weight = 600; }
+    else if (active) { bg = hexA(color, prs ? 0.22 : hov ? 0.18 : 0.12); border = hexA(color, 0.5); ink = color; weight = 600; }
+    else if (tone) { bg = hexA(color, prs ? 0.24 : hov ? 0.18 : 0.10); border = hexA(color, 0.5); ink = color; weight = 600; }
+    else { bg = prs ? '#1f2937' : hov ? C.bg3 : 'rgba(255,255,255,0.03)'; border = C.hair2; ink = C.text; }
+    if (fill) bg = fill;
+    if (disabled) { bg = 'rgba(255,255,255,0.02)'; border = C.hair; ink = C.faint; }
+    ctx.fillStyle = bg; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = border; ctx.stroke();
+    text(ctx, label, x + w / 2, y + h / 2 + 1, { size, weight, color: ink, align: 'center', base: 'middle', max: w - 16 });
     this.buttons.push({ id, x, y, w, h, onClick, disabled });
   }
 
@@ -92,27 +112,21 @@ export class Panel {
     if (this.prepare) this.prepare();
     this.buttons = [];
     ctx.clearRect(0, 0, W, H);
-    // glass body
-    rrect(ctx, 3, 3, W - 6, H - 6, 30);
-    const g = ctx.createLinearGradient(0, 0, W * 0.3, H);
-    g.addColorStop(0, this.solid ? 'rgba(20,29,46,0.97)' : 'rgba(22,32,50,0.86)'); g.addColorStop(1, this.solid ? 'rgba(8,12,22,0.97)' : 'rgba(8,12,22,0.84)');
-    ctx.fillStyle = g; ctx.fill();
+    // flat panel, as on the website: #0a0e14, hairline border, 10px corners. Kept nearly opaque so text holds
+    // its contrast against passthrough and the scenes.
+    rrect(ctx, 2, 2, W - 4, H - 4, 10 * S);
+    ctx.fillStyle = this.solid ? 'rgba(10,14,20,0.98)' : 'rgba(10,14,20,0.94)'; ctx.fill();
     ctx.lineWidth = 2;
-    ctx.strokeStyle = this.flash > 0 ? mixColor('#ffffff', C.amber, this.flash) : 'rgba(255,255,255,0.12)';
+    ctx.strokeStyle = this.flash > 0 ? mixColor('#ffffff', C.amber, this.flash) : C.hair;
     ctx.stroke();
-    // soft top highlight
-    const hl = ctx.createLinearGradient(0, 0, 0, 90);
-    hl.addColorStop(0, 'rgba(255,255,255,0.07)'); hl.addColorStop(1, 'rgba(255,255,255,0)');
-    rrect(ctx, 4, 4, W - 8, 90, 28); ctx.fillStyle = hl; ctx.fill();
+    if (this.framed) frameCorners(ctx, 2, 2, W - 4, H - 4);
     if (this.header) {
-      ctx.fillStyle = this.flash > 0 ? C.amber : this.accent;
-      ctx.beginPath(); ctx.arc(36, 37, 6, 0, Math.PI * 2); ctx.fill();
-      text(ctx, this.title, 54, 47, { size: 29, weight: 600, color: this.titleColor || C.text });
-      ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(24, this.headerH); ctx.lineTo(W - 24, this.headerH); ctx.stroke();
+      text(ctx, this.title, 24, 44, { size: 25, weight: 600, color: this.flash > 0 ? C.amber : this.titleColor || C.text });
+      ctx.strokeStyle = C.hair; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(0, this.headerH); ctx.lineTo(W, this.headerH); ctx.stroke();
       // drag handle
-      ctx.fillStyle = this.hover && this.hover.y < this.headerH ? C.gold : 'rgba(255,255,255,0.18)';
-      rrect(ctx, W / 2 - 34, 14, 68, 7, 3.5); ctx.fill();
+      ctx.fillStyle = this.hover && this.hover.y < this.headerH ? C.gold : 'rgba(255,255,255,0.15)';
+      rrect(ctx, W / 2 - 30, 4, 60, 5, 2.5); ctx.fill();
     }
     this.drawBody(ctx, { x: 24, y: this.headerH + 14, w: W - 48, h: H - this.headerH - 34 });
     this.tex.needsUpdate = true;

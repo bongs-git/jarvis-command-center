@@ -582,12 +582,12 @@ scene.add(rig);
 // INDAI orb (tap or pinch it to talk)
 const orb = new THREE.Group();
 {
-  const core = new THREE.Mesh(new THREE.SphereGeometry(0.03, 24, 16), new THREE.MeshBasicMaterial({ color: 0x9fe6ff, transparent: true, opacity: 0.95 }));
+  const core = new THREE.Mesh(new THREE.SphereGeometry(0.03, 24, 16), new THREE.MeshBasicMaterial({ color: 0x6ec3f2, transparent: true, opacity: 0.95 }));
   core.name = 'core'; orb.add(core);
-  const glow = new THREE.Mesh(new THREE.SphereGeometry(0.05, 24, 16), new THREE.MeshBasicMaterial({ color: 0x5ad1ff, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(0.05, 24, 16), new THREE.MeshBasicMaterial({ color: 0x6ec3f2, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false }));
   glow.name = 'glow'; orb.add(glow);
   const ringMat = (c, o) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
-  [[0.07, 0x5ad1ff, 0.75], [0.085, 0xf0c674, 0.6], [0.1, 0xa78bfa, 0.4]].forEach(([r, c, o], i) => {
+  [[0.07, 0x6ec3f2, 0.75], [0.085, 0xdcbf6e, 0.6], [0.1, 0xa99bf5, 0.4]].forEach(([r, c, o], i) => {
     const m = new THREE.Mesh(new THREE.TorusGeometry(r, 0.0022, 8, 96), ringMat(c, o));
     m.name = 'ring' + i; m.rotation.x = Math.PI / 2 + i * 0.5; orb.add(m);
   });
@@ -847,7 +847,7 @@ const cursorGeo = new THREE.RingGeometry(0.006, 0.011, 24);
 for (let i = 0; i < 2; i++) {
   const ctrl = renderer.xr.getController(i);
   const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
-  const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0x5ad1ff, transparent: true, opacity: 0.6 }));
+  const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0x6ec3f2, transparent: true, opacity: 0.6 }));
   line.visible = false;
   ctrl.add(line);
   const cursor = new THREE.Mesh(cursorGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthTest: false, side: THREE.DoubleSide }));
@@ -865,7 +865,7 @@ for (let i = 0; i < 2; i++) {
   scene.add(hand);
 }
 const jointGeo = new THREE.SphereGeometry(0.0048, 10, 8), tipGeo = new THREE.SphereGeometry(0.0078, 12, 10);
-const HAND_COL = { idle: 0x9fe6ff, pinch: 0xb79cff, fist: 0xf0c674, armed: 0xf0c674, fired: 0x34d399 };
+const HAND_COL = { idle: 0x6ec3f2, pinch: 0xa99bf5, fist: 0xdcbf6e, armed: 0xdcbf6e, fired: 0x3ecf8e };
 const BONES = [];
 for (const f of ['thumb', 'index-finger', 'middle-finger', 'ring-finger', 'pinky-finger']) {
   const chain = HAND_JOINTS.filter(n => n.startsWith(f + '-'));
@@ -985,7 +985,7 @@ function updateXRPointers() {
       ptr.line.scale.z = h.distance;
       if (h.orb) app.tutorialEvent('orbHover');
       const overBtn = h.orb || hp.buttonAt(h.px) || hp.inHeader(h.px);
-      ptr.cursor.material.color.set(overBtn ? 0xf0c674 : 0xffffff);
+      ptr.cursor.material.color.set(overBtn ? 0xdcbf6e : 0xffffff);
     } else {
       ptr.cursor.visible = false;
       ptr.line.scale.z = 3;
@@ -1236,7 +1236,7 @@ function loop(time, frame) {
   const level = Math.min(1, (ind.voice.level || 0) * 12);
   const pulse = vs.speaking ? 1 + Math.sin(time * 0.018) * 0.14 : vs.listening ? 1 + level * 0.35 + Math.sin(time * 0.012) * 0.05 : ind.thinking || vs.transcribing ? 1 + Math.sin(time * 0.008) * 0.1 : 1 + Math.sin(time * 0.002) * 0.04;
   orb.scale.setScalar(pulse);
-  orb.getObjectByName('core').material.color.set(vs.listening ? 0xfbbf24 : vs.transcribing || ind.thinking ? 0xa78bfa : vs.speaking ? 0x34d399 : 0x9fe6ff);
+  orb.getObjectByName('core').material.color.set(vs.listening ? 0xf0b34a : vs.transcribing || ind.thinking ? 0xa99bf5 : vs.speaking ? 0x3ecf8e : 0x6ec3f2);
   const spin = ind.thinking || vs.transcribing ? 3 : 1;
   for (let i = 0; i < 3; i++) { const r = orb.getObjectByName('ring' + i); r.rotation.z += dt * spin * (0.4 + i * 0.35) * (i % 2 ? -1 : 1); r.rotation.y += dt * 0.2 * (i + 1); }
   spaces.update(dt);
