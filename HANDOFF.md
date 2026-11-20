@@ -16,7 +16,9 @@ hand off." From that evening Claude works on the back end and ChatGPT on the fro
 The "Never touches" column still applies to whoever holds each lane, and the backlog headings below keep their old
 names: the lane decides who picks an item up, not the name. Before starting, read the other side's notes:
 `supabase/OPERATIONS.md` for the back end; `indai/SYNC.md` and `indai/README.md` in `bongs-git/bongs-git.github.io`
-for the website.
+for the website. One exception so far: early on November 20 the owner asked Claude directly for a chart he can move,
+zoom and draw on, and Claude built it in the website (`indai/js/chart.js`, `indai/js/draw.js`, `indai/js/views.js`,
+`indai/index.html`, `indai/css/app.css`). Pull before editing those files.
 
 Why it was first split this way round: the front end needs a real headset loop (WebXR emulator tests, hand tracking, on-device
 speech models, APK builds) that is already set up and passing here. The back end is plain HTTP + SQL with a
