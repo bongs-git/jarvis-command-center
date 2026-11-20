@@ -5,6 +5,11 @@ One line per user-visible feature, newest first. The Quest app and the standalon
 
 | Date | Feature | Where | web |
 |---|---|---|---|
+| 2026-11-20 | Per-ticker source/freshness labels, unknown previous close shown as —, and missing-option/GEX explanations | Website PR #1: data-status.js, views.js, sheets.js, ideas.js | implemented; release checks pending |
+| 2026-11-20 | Drawing undo, horizontal ray, rectangle, touch magnifier; history loading/end labels and earlier-session hour labels | Website PR #1: draw.js, chart.js, history.js | implemented; release checks pending |
+| 2026-11-20 | Isolated TradingView Web Component and full-screen control | Website PR #1: views.js | implemented; real-device rendering pending |
+| 2026-11-20 | Last setup push arrival delay and accepted test-device count in Settings | Website PR #1: push.js, sw.js, sheets.js | implemented; real iPhone push pending |
+| 2026-11-20 | Local drawing/tuning save queue with honest cloud-sync status | Website PR #1: profile-sync.js | backend drawings/tuning keys and merge contract pending |
 | 2026-11-20 | Headset chart works like the website's: move, zoom (two hands, axes, thumbstick), reset, trend lines and levels (same drawing store as the website, `js/draw.js` copied from it) | js/panels.js MainChart, js/draw.js, js/main.js | done (website had it first) |
 | 2026-11-20 | Resize windows (two-hand stretch or corner grip), double-pinch a top bar to bring a window up front, palm-to-talk gesture, four new tutorial steps | js/main.js, js/hud.js, js/panels.js | n/a (headset only) |
 | 2026-11-20 | Sharper text in the headset: panels painted at 1.6x, half-mip sharper sampling, no foveated blur, 1.2x framebuffer, text never thinner than medium weight, brighter secondary text | js/hud.js, js/main.js | n/a (headset only) |
