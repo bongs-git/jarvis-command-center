@@ -16,6 +16,7 @@ import { failure, HttpError, objectBody } from "../_shared/http.ts";
 import { profile } from "./profile.ts";
 import { streamTalk } from "./stream.ts";
 import { brainStatus, extractJson, think } from "./super.ts";
+import { atlasMode } from "./atlas.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -24,6 +25,8 @@ const CORS = {
   "Access-Control-Max-Age": "86400",
 };
 const MODELS: Record<string, string> = { fast: "claude-sonnet-5-5", deep: "claude-opus-5-5", talk: "claude-haiku-5-5" };
+// Every mode this deployment answers. The apps read it from GET and ask only for what is listed.
+const MODES = ["talk", "trade", "chat", "memory", "profile", "history", "atlas"];
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { ...CORS, "Content-Type": "application/json" } });
@@ -95,11 +98,13 @@ serve("indai-brain",async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const key = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
   const pass = Deno.env.get("INDAI_PASSCODE") ?? "";
-  if (req.method === "GET") return json({ configured: !!key, passcode: !!pass, memory: !!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"), brains: brainStatus(!!key) });
+  if (req.method === "GET") return json({ configured: !!key, passcode: !!pass, memory: !!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"), brains: brainStatus(!!key), modes: MODES });
   if (req.method !== "POST") return json({error:"method",message:"Use GET or POST."},405);
   let body: any, session = "default", talkUser: string | null = null;
   try {
     body = await objectBody(req);
+    // A request with no mode is a trade idea, as it always was. A mode nobody answers is refused before it can cost a model call.
+    if (body.mode != null && !MODES.includes(body.mode)) throw new HttpError(400,"bad_mode","Unknown mode. GET lists the modes this server answers.");
     markMode(req,body.mode??"trade");
     if (body.mode === "talk" || body.mode === "history") session = sessionName(body.session);
     if (body.mode === "history") {
@@ -112,6 +117,7 @@ serve("indai-brain",async (req) => {
       if (body.request_id != null && !uuid.test(body.request_id)) throw new HttpError(400,"bad_request","request_id must be a UUID.");
     }
     if (body.mode === "profile") return await profile(req, body);
+    if (body.mode === "atlas") return await atlasMode(req, body);
   } catch (e) { return failure(e); }
   // Memory works whether or not the thinking key is set, so teaching INDAI never fails.
   if (body?.mode === "memory") {

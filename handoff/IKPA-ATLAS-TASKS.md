@@ -100,6 +100,9 @@ owner-scoped like profile and memory, no tokens spent. Returns the engine output
 - Done when: `{mode:"atlas",op:"lookup",rule:"hammer",trend:"below",vol:"high",horizon:5}` returns win 0.573,
   base 0.543, n 1101, `cellGrade:"RED"` (the early era went the other way). Add the contract row.
 
+**Done November 20, 2026** in `indai-brain` version 12, with `op:"scan"` for the website (CAP-1). Contract rows are in
+`HANDOFF.md`; the checks are `supabase/checks/atlas_test.ts`.
+
 ### ATLAS-6 · Atlas marks on the website chart · P1 (your chart lane)
 On the website's daily chart (`indai/js/chart.js`), mark bars where a tested pattern fired, coloured by its light.
 Tapping a mark opens a sheet with the light, the cell numbers and the six hats, fetched from ATLAS-5. Keep the

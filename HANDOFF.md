@@ -89,7 +89,10 @@ The only client is `js/relay.js`. The function sources in `/supabase` are the so
 | `POST /functions/v1/indai-tv?key=…` `{kind:"live",tf:"1",bars:[…]}` | the forming candle, from the bridge | Stored in `indai_tv_live`, one row per ticker, apart from `indai_tv_bars`. Only a one-minute candle of the minute now running is taken. |
 | `GET /functions/v1/indai-tv?bars=1&ticker=QQQ&before=<ms>&limit=1000` | history for one ticker, for scrolling a chart back | `{ ticker, bars: [{t,o,h,l,c,v}], now }`: stored one-minute bridge candles older than `before` (default now), newest first, at most 1000 a call (regular and extended hours; page back with the oldest `t`). No key needed. It only holds what the bridge has sent since November 19, 2026 |
 | `POST /functions/v1/indai-tv?key=…` | TradingView webhook (private key in `indai_private_config`) | Pine `alert()` JSON |
-| `GET /functions/v1/indai-brain` | status | `{ configured, passcode, memory, brains: { claude, perplexity, chatgpt } }` (which brains are switched on) |
+| `GET /functions/v1/indai-brain` | status | `{ configured, passcode, memory, brains: { claude, perplexity, chatgpt }, modes: string[] }`. `brains`: which brains are switched on. `modes` (version 12): every mode this server answers. Ask for a newer mode only when it is listed; a server without `modes` has none of them. |
+| `POST /functions/v1/indai-brain` with a mode that is not in `modes` | refused | `400 {error:"bad_mode"}` before any model call (version 12). A request with no `mode` is still a trade idea. |
+| `POST indai-brain {mode:"atlas", op:"scan", symbol?, timeframe?, intraday?, patterns:[{code, at?, trendBin?, volBin?, …}]}` | the atlas's tested numbers for the patterns found in a capture, no model call | `{ reads: [{ code, at, name, side, light, win, base, n, lift, net, horizon, scope, cellKey?, line }], note, version }`, one read per pattern (1 to 40), at five sessions. `code` is the TA-Lib name (`CDLHAMMER`) or one of the six proxies, matched exactly. `light` is `GREEN`, `AMBER`, `RED`, `GREY` (fewer than 30 cases) or `NONE` (not a tested rule: then there are no numbers at all). `scope` is `cell` (your trend/volatility bin, named in `cellKey`) or `overall` (the rule's whole row, when no bin was sent or the bin has no cases; `line` says which). `win`, `base` and `lift` are fractions rounded to four places. With `intraday:true`, `line` says the percentages were measured on daily stock candles. Owner only: the passcode header or the owner's sign-in (`401`, `403 forbidden` for another account), 600 requests an hour, `503 atlas_unavailable` if the data is not loaded. |
+| `POST indai-brain {mode:"atlas", op:"lookup"/"read"/"combine", rule?, signals?, trend?, vol?, horizon?, vix?, aaiiSpread?, sequence?, intraday?, options?, bars?}` | one question to the atlas engine, no model call | `{ result, version }`, where `result` is what `atlas/README.md` documents for `lookup`, `read` (six hats and `verdict.light`) and `combine` (`signals`: 1 to 12 names). `trend` is `above`/`below`, `vol` is `low`/`mid`/`high`, `horizon` is 1, 5 or 20; anything else is `400 bad_request`. `bars` (up to 600 daily candles `{O,H,L,C}`) lets `read` work out the bins itself. The whole knowledge base is never returned and there is no way to ask for it. Same owner rule as `scan`. |
 | `POST /functions/v1/indai-brain` `{mode:"trade"}` | researched RAG verdict | `{ result: { rag, confidence, headline, spoken, summary[], bullish[], bearish[], news[], events[], watch[], plan_notes, second? }, sources[], model, brains[] }`. `brains` lists who worked on the answer, in order: `{ brain: "perplexity"/"claude"/"chatgpt", role, model, ok, ms, tokens?, sources?, via?, error? }`. `result.second`, present when ChatGPT gave a second opinion: `{ by:"ChatGPT", model, rag, confidence, reason, risk, agrees }`. The rating is always Claude's; a disagreement is already folded into `confidence`, `summary` and `spoken`. `model` names the brain that wrote the result (ChatGPT's model when it stood in for Claude). `mode:"chat"` carries `brains` too. |
 | `POST … {mode:"talk", question, history[], context, speech}` | conversation | `{ result: { spoken, summary?, command?, heard_as?, remember?, forget? }, remembered[] }` |
 | `POST … {mode:"memory", op:"list"/"add"/"forget", text?, ids?}` | long-term memory | `{ memory: [{ id, kind, text, created_at }] }` |
@@ -140,16 +143,22 @@ every function answers `OPTIONS` with open CORS; nothing secret is ever returned
     data, 42 with it, and 42 again on the data as the database hands it back) and ATLAS-1 (table created, the owner's
     file loaded as key `kb`, version `rev1.1-corrected`, an exact copy; the public key is refused). How the data got
     there, and how to load the next revision, is in `atlas/load/`. A schema named `indai_stage` exists only during a
-    load: if you find one, a load was interrupted or its clean-up is waiting for the owner's approval. Still to do:
-    an atlas read on every rated idea (`result.atlas`, additive), TA-Lib-matching candle detectors, VIX for the red
-    hat, a no-model `mode:"atlas"` endpoint, chart marks on the website, the formula desk in the options calculator,
-    and logging the owner's live results against the atlas baseline.
+    load: if you find one, a load was interrupted or its clean-up is waiting for the owner's approval. Also done:
+    ATLAS-5, the no-model `mode:"atlas"` endpoint (contract rows above; `indai-brain` version 12). Still to do: an
+    atlas read on every rated idea (`result.atlas`, additive), TA-Lib-matching candle detectors on the server, VIX for
+    the red hat, chart marks on the website, the formula desk in the options calculator, and logging the owner's live
+    results against the atlas baseline. The rated-idea read needs daily candles on the server, which CBOE is refusing
+    (see "When CBOE refuses the backend" in `supabase/OPERATIONS.md`).
 22. **Analyze / Capture on the website.** Website PR #2 in `bongs-git/bongs-git.github.io` adds an Analyze button and a
     Capture box on the chart (patterns, shapes, levels, paths and suggested timeframes, read on the device), chart
     sizes from 1 minute to weekly, years of daily candles, and candles kept on the device. Ikpa's tickets CAP-0 to
     CAP-4 are in `handoff/IKPA-CAPTURE-TASKS.md`: `modes` in the brain's GET status and 400 for unknown modes, a
     no-model `mode:"atlas", op:"scan"`, a picture-reading `mode:"capture"`, `days` on `kind=daily`, and checking the
     bridge keeps 45 days of minute candles. The website asks for `atlas` and `capture` only when `modes` lists them.
+    Done in `indai-brain` version 12: CAP-0 (`modes`, `bad_mode`) and CAP-1 (`op:"scan"`). One difference from the
+    ticket's example: the hammer's below/high/5 cell answers `RED`, not `AMBER`. Its numbers are the ticket's (0.573
+    against 0.543, 1,101 cases), but the earlier years went the other way, which is the book's own grade for that cell.
+    `capture` is not listed in `modes` until CAP-2 is built.
 
 ## Front-end backlog (Claude)
 
