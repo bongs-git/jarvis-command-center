@@ -284,11 +284,14 @@ serve("indai-market",async (req) => {
       return json({ bars: out, note: "1-minute bars, minutes after midnight New York time: [mins, open, high, low, close, volume, callVolume, putVolume]", ...allBridge(Object.values(out)) }, 200, 15);
     }
     if (kind === "daily") {
+      // days: how many daily candles to return, newest last (1 to 6000; 260 when not given, as before).
+      const want = Number(url.searchParams.get("days"));
+      const days = Number.isFinite(want) && want >= 1 ? Math.min(6000, Math.floor(want)) : 260;
       const out: Record<string, unknown> = {};
       await Promise.all(many.map(async (t) => {
         try {
           const raw = await cached("d:" + t, 3_600_000, () => cboe(`charts/historical/${cboeSym(t)}.json`));
-          const arr = (Array.isArray(raw?.data) ? raw.data : []).slice(-260);
+          const arr = (Array.isArray(raw?.data) ? raw.data : []).slice(-days);
           out[t] = arr.map((b: any) => [b.date, num(b.open), num(b.high), num(b.low), num(b.close), num(b.volume)]);
         } catch (e) { out[t] = { error: String((e as Error).message) }; }
       }));
