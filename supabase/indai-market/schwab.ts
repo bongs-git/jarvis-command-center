@@ -48,13 +48,14 @@ export function minutesFrom(body: any, live: boolean) {
   return { session: day, bars, timestamp: new Date(rows[rows.length - 1].datetime).toISOString(), optionVolumeAvailable: false, delay: live ? 0 : 900, source: SCHWAB };
 }
 export async function schwabMinutes(symbol: string, token: string, live: boolean) {
-  return minutesFrom(await get("/pricehistory", { symbol: theirs(symbol), periodType: "day", period: "1", frequencyType: "minute", frequency: "1", needExtendedHoursData: "false", needPreviousClose: "false" }, token), live);
+  // Without an end date Schwab answers with the last finished session; with "now" it answers with today's, up to this minute.
+  return minutesFrom(await get("/pricehistory", { symbol: theirs(symbol), periodType: "day", period: "1", frequencyType: "minute", frequency: "1", endDate: String(Date.now()), needExtendedHoursData: "false", needPreviousClose: "false" }, token), live);
 }
 // deno-lint-ignore no-explicit-any
 export const dailyFrom = (body: any, days: number) => candles(body).slice(-days).map((c) => [clock(c.datetime).day, n(c.open), n(c.high), n(c.low), n(c.close), n(c.volume)]);
 export async function schwabDaily(symbol: string, days: number, token: string) {
   const years = [1, 2, 3, 5, 10, 15, 20].find((y) => y * 250 >= days) ?? 20;
-  const rows = dailyFrom(await get("/pricehistory", { symbol: theirs(symbol), periodType: "year", period: String(years), frequencyType: "daily", frequency: "1", needPreviousClose: "false" }, token, 15_000), days);
+  const rows = dailyFrom(await get("/pricehistory", { symbol: theirs(symbol), periodType: "year", period: String(years), frequencyType: "daily", frequency: "1", endDate: String(Date.now()), needPreviousClose: "false" }, token, 15_000), days);
   if (!rows.length) throw new Error("Schwab has no daily candles");
   return rows;
 }
