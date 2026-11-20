@@ -144,6 +144,12 @@ every function answers `OPTIONS` with open CORS; nothing secret is ever returned
     an atlas read on every rated idea (`result.atlas`, additive), TA-Lib-matching candle detectors, VIX for the red
     hat, a no-model `mode:"atlas"` endpoint, chart marks on the website, the formula desk in the options calculator,
     and logging the owner's live results against the atlas baseline.
+22. **Analyze / Capture on the website.** Website PR #2 in `bongs-git/bongs-git.github.io` adds an Analyze button and a
+    Capture box on the chart (patterns, shapes, levels, paths and suggested timeframes, read on the device), chart
+    sizes from 1 minute to weekly, years of daily candles, and candles kept on the device. Ikpa's tickets CAP-0 to
+    CAP-4 are in `handoff/IKPA-CAPTURE-TASKS.md`: `modes` in the brain's GET status and 400 for unknown modes, a
+    no-model `mode:"atlas", op:"scan"`, a picture-reading `mode:"capture"`, `days` on `kind=daily`, and checking the
+    bridge keeps 45 days of minute candles. The website asks for `atlas` and `capture` only when `modes` lists them.
 
 ## Front-end backlog (Claude)
 
