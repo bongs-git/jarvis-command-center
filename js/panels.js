@@ -1,6 +1,7 @@
 // The command-center screens.
 import { Panel, C, F, S, text, rrect, fmtPrice, fmtPct, fmtMoney, colorFor, hexA } from './hud.js';
-import { ema, vwap, fmtClock, fmtDuration, fmtHM, marketStatus, chartSession, INTERVAL_LABEL } from './market.js';
+import { ema, vwap, fmtClock, fmtDuration, fmtHM, marketStatus, chartSession, INTERVAL_LABEL, INTERVAL_MS } from './market.js';
+import { drawingsFor, addDrawing, removeDrawing, clearDrawings, saveDrawings, distToSegment } from './draw.js';
 import { LEADLAG } from './feeds.js';
 import { pnlGrid, positionSummary } from './options.js';
 import { STRATEGIES, PROFILES, buildPlan } from './signals.js';
@@ -139,9 +140,179 @@ export function nearestLevel(price, lv) {
 }
 
 // ---------------------------------------------------------------- main chart
+// Works like the website's chart: pinch (or trigger) and drag to move it, drag the price axis to stretch prices,
+// drag the time axis or pinch with both hands to zoom, double-pinch to reset. "Draw" adds trend lines and price
+// levels that can be selected, moved and deleted; they are kept on this device per ticker (same store as the website).
+const MIN_SLOTS = 8;
 export class MainChart extends Panel {
-  constructor(app) { super({ id: 'chart', title: 'Chart', w: 1.30, h: 0.76 }); this.app = app; this.wantsHoverRedraw = true; this.titleColor = C.white; this.framed = true; }
+  constructor(app) {
+    super({ id: 'chart', title: 'Chart', w: 1.30, h: 0.76 }); this.app = app; this.wantsHoverRedraw = true; this.titleColor = C.white; this.framed = true;
+    this.view = null; this.ys = null; this.viewKey = ''; this.geo = null;
+    this.drawMode = false; this.tool = 'move'; this.sel = null; this.drag = null; this.pending = null; this.lastTap = null;
+  }
   prepare() { const s = this.app.settings; this.title = `${s.main} · ${INTERVAL_LABEL[s.interval]}`; }
+  get manual() { return !!(this.view || this.ys); }
+
+  // ---- geometry helpers (all in panel canvas units)
+  xOf(t) { const g = this.geo; return g.plot.x + ((t - g.open) / g.ivMs - g.first + 0.5) * g.cw; }
+  tOf(x) { const g = this.geo; return g.open + ((x - g.plot.x) / g.cw + g.first - 0.5) * g.ivMs; }
+  pOf(y) { const g = this.geo; return g.lo + ((g.plot.y + g.plot.h - Math.max(g.plot.y, Math.min(g.plot.y + g.plot.h, y))) / g.plot.h) * (g.hi - g.lo); }
+  yOf(p) { const g = this.geo; return g.plot.y + g.plot.h - ((p - g.lo) / (g.hi - g.lo)) * g.plot.h; }
+  inPlot(p) { const g = this.geo; return g && p.x >= g.plot.x && p.x <= g.plot.x + g.plot.w && p.y >= g.plot.y && p.y <= g.plot.y + g.plot.h; }
+  zone(p) {
+    const g = this.geo; if (!g) return null;
+    const right = g.plot.x + g.plot.w, bottom = g.plot.y + g.plot.h;
+    if (p.x > right && p.x < right + 118 && p.y >= g.plot.y && p.y <= bottom + 10) return 'yscale';
+    if (p.y > bottom && p.y < bottom + 46 && p.x >= g.plot.x && p.x <= right) return 'xscale';
+    return this.inPlot(p) ? 'plot' : null;
+  }
+  clampSlots(n) { const g = this.geo; return Math.max(MIN_SLOTS, Math.min(g ? g.zoomMax : 390, n)); }
+  setView(first, slots) { this.view = { first, slots }; this.dirty = true; }
+  setY(lo, hi) {
+    const g = this.geo, fit = g ? g.autoHi - g.autoLo : hi - lo;
+    const span = Math.max(fit * 0.03, Math.min(fit * 40, hi - lo)), mid = (lo + hi) / 2;
+    this.ys = { lo: mid - span / 2, hi: mid + span / 2 }; this.dirty = true;
+  }
+  resetView() { this.view = null; this.ys = null; this.dirty = true; this.app.chartEvent?.('reset'); }
+  setDrawMode(on) { this.drawMode = !!on; if (!on) { this.tool = 'move'; this.pending = null; this.sel = null; } this.dirty = true; }
+  setTool(tool) { this.tool = this.tool === tool ? 'move' : tool; this.pending = null; if (this.tool !== 'move') { this.sel = null; this.drawMode = true; this.app.chartEvent?.('tool-' + this.tool); } this.dirty = true; }
+  deleteSelected() { if (!this.sel) return; removeDrawing(this.app.settings.main, this.sel); this.sel = null; this.dirty = true; }
+  clearAll() { clearDrawings(this.app.settings.main); this.sel = null; this.pending = null; this.dirty = true; }
+
+  // The drawing under a point: an end of the selected line, a line's body, or a level.
+  hitDrawing(p, coarse = true) {
+    const g = this.geo; if (!g || !this.inPlot(p)) return null;
+    const list = drawingsFor(this.app.settings.main), near = coarse ? 40 : 22, edge = coarse ? 26 : 14;
+    const ends = (d) => [this.xOf(d.a.t), this.yOf(d.a.p), this.xOf(d.b.t), this.yOf(d.b.p)];
+    const picked = list.find(d => d.id === this.sel);
+    if (picked && picked.type === 'line') {
+      const [ax, ay, bx, by] = ends(picked);
+      if (Math.hypot(p.x - ax, p.y - ay) <= near) return { d: picked, part: 'a' };
+      if (Math.hypot(p.x - bx, p.y - by) <= near) return { d: picked, part: 'b' };
+    }
+    for (let n = list.length - 1; n >= 0; n--) {
+      const d = list[n];
+      if (d.type === 'level') { if (d.p <= g.hi && d.p >= g.lo && Math.abs(p.y - this.yOf(d.p)) <= edge) return { d, part: 'level' }; continue; }
+      const [ax, ay, bx, by] = ends(d);
+      if (distToSegment(p.x, p.y, ax, ay, bx, by) <= edge) return { d, part: 'body' };
+    }
+    return null;
+  }
+
+  // ---- pointer input (pinch / trigger / mouse). Returns true when the chart takes the press.
+  pointerDown(p, { coarse = true } = {}) {
+    const g = this.geo; this.drag = null;
+    if (!g) return false;
+    const z = this.zone(p); if (!z) return false;
+    const moveTol = coarse ? 22 : 6;
+    if (z === 'yscale') { this.drag = { kind: 'yscale', start: p, lo0: g.lo, hi0: g.hi, moved: false, tol: moveTol }; return true; }
+    if (z === 'xscale') { this.drag = { kind: 'xscale', start: p, first0: g.first, slots0: g.slots, moved: false, tol: moveTol }; return true; }
+    const at = { t: this.tOf(p.x), p: this.pOf(p.y) }, sym = this.app.settings.main;
+    if (this.tool === 'line') this.drag = { kind: 'new', a: this.pending || at, b: at, start: p, second: !!this.pending, tol: moveTol };
+    else if (this.tool === 'level') { const d = addDrawing(sym, { type: 'level', p: at.p }); this.sel = d.id; this.drag = { kind: 'level', d, start: p, moved: true, tol: moveTol }; }
+    else {
+      const hit = this.hitDrawing(p, coarse);
+      if (hit && hit.d.id === this.sel) this.drag = { kind: hit.part, d: hit.d, start: p, from: at, a0: hit.d.a && { ...hit.d.a }, b0: hit.d.b && { ...hit.d.b }, moved: false, tol: moveTol };
+      else this.drag = { kind: 'pan', start: p, first0: g.first, slots0: g.slots, cw0: g.cw, lo0: g.lo, hi0: g.hi, hit, moved: false, tol: moveTol };
+    }
+    this.dirty = true;
+    return true;
+  }
+  pointerMove(p) {
+    const g = this.geo, d = this.drag;
+    this.hover = p;
+    if (!g || !d) { this.dirty = true; return; }
+    if (!d.moved && Math.hypot(p.x - d.start.x, p.y - d.start.y) > d.tol) d.moved = true;
+    const at = { t: this.tOf(p.x), p: this.pOf(p.y) };
+    if (d.kind === 'yscale') { if (d.moved) { const k = Math.exp((p.y - d.start.y) * 0.004), mid = (d.lo0 + d.hi0) / 2, half = (d.hi0 - d.lo0) / 2 * k; this.setY(mid - half, mid + half); } return; }
+    if (d.kind === 'xscale') { if (d.moved) { const slots = this.clampSlots(d.slots0 * Math.exp((d.start.x - p.x) * 0.004)); this.setView(d.first0 + d.slots0 - slots, slots); this.app.chartEvent?.('zoom'); } return; }
+    if (d.kind === 'pan') {
+      if (d.moved) {
+        if (this.ys) { const dp = (p.y - d.start.y) / g.plot.h * (d.hi0 - d.lo0); this.ys = { lo: d.lo0 + dp, hi: d.hi0 + dp }; }
+        this.setView(d.first0 - (p.x - d.start.x) / d.cw0, d.slots0);
+        this.app.chartEvent?.('pan');
+      } else this.dirty = true;
+      return;
+    }
+    if (d.kind === 'new') d.b = at;
+    else if (d.kind === 'level') d.d.p = at.p;
+    else if (d.kind === 'a' || d.kind === 'b') d.d[d.kind] = at;
+    else if (d.kind === 'body') { const dt = at.t - d.from.t, dp = at.p - d.from.p; d.d.a = { t: d.a0.t + dt, p: d.a0.p + dp }; d.d.b = { t: d.b0.t + dt, p: d.b0.p + dp }; }
+    this.dirty = true;
+  }
+  pointerUp(p, cancelled = false) {
+    const g = this.geo, d = this.drag, sym = this.app.settings.main;
+    this.drag = null;
+    if (!d) return;
+    if (p && !d.moved && Math.hypot(p.x - d.start.x, p.y - d.start.y) > d.tol) d.moved = true;
+    const now = performance.now();
+    if (d.kind === 'new') {
+      const far = p && Math.hypot(p.x - d.start.x, p.y - d.start.y) >= 24;
+      if (cancelled || !g) this.pending = null;
+      else if (d.second || far) {
+        const long = Math.hypot(this.xOf(d.a.t) - this.xOf(d.b.t), this.yOf(d.a.p) - this.yOf(d.b.p)) >= 16;
+        if (long) { this.sel = addDrawing(sym, { type: 'line', day: g.open, a: d.a, b: d.b }).id; this.app.chartEvent?.('line'); }
+        this.pending = null; this.tool = 'move';
+      } else this.pending = d.a;          // one pinch places the start; the next one places the end
+    } else if (d.kind === 'pan') {
+      if (!d.moved && !cancelled) {
+        const again = this.lastTap && !this.lastTap.zone && now - this.lastTap.t < 500 && Math.hypot(p.x - this.lastTap.x, p.y - this.lastTap.y) < 60;
+        this.lastTap = again ? null : { t: now, x: p.x, y: p.y };
+        if (d.hit) { this.sel = d.hit.d.id; this.drawMode = true; }
+        else if (this.sel) this.sel = null;
+        else if (again) this.resetView();     // two quick pinches on the chart go back to the automatic view
+      }
+    } else if (d.kind === 'yscale' || d.kind === 'xscale') {
+      if (!d.moved && !cancelled) {
+        const again = this.lastTap && this.lastTap.zone === d.kind && now - this.lastTap.t < 500;
+        this.lastTap = again ? null : { t: now, x: p.x, y: p.y, zone: d.kind };
+        if (again) { if (d.kind === 'yscale') this.ys = null; else this.view = null; }
+      }
+    } else {
+      if (d.kind === 'level' && this.tool === 'level') { this.tool = 'move'; this.app.chartEvent?.('level'); }
+      saveDrawings();
+    }
+    this.dirty = true;
+  }
+  // Two hands (or two controllers) on the chart: spread to zoom in, bring together to zoom out.
+  pinchStart(pa, pb) {
+    const g = this.geo; if (!g) return;
+    if (this.drag && ['level', 'a', 'b', 'body'].includes(this.drag.kind)) saveDrawings();
+    this.drag = { kind: 'pinch', d0: Math.max(40, Math.abs(pa.x - pb.x)), mid0: (pa.x + pb.x) / 2, first0: g.first, slots0: g.slots, cw0: g.cw };
+  }
+  pinchMove(pa, pb) {
+    const g = this.geo, d = this.drag; if (!g || !d || d.kind !== 'pinch') return;
+    const slots = this.clampSlots(d.slots0 * d.d0 / Math.max(40, Math.abs(pa.x - pb.x)));
+    const under = d.first0 + (d.mid0 - g.plot.x) / d.cw0;
+    this.setView(under - ((pa.x + pb.x) / 2 - g.plot.x) / (g.plot.w / slots), slots);
+    this.app.chartEvent?.('zoom');
+  }
+  pinchEnd() { if (this.drag && this.drag.kind === 'pinch') this.drag = null; this.dirty = true; }
+  // Mouse wheel in the 2D preview: over the price axis it stretches prices, sideways it moves, up/down it zooms.
+  wheel(p, dx, dy) {
+    const g = this.geo; if (!g) return false;
+    const z = this.zone(p); if (!z) return false;
+    if (z === 'yscale') { const k = Math.exp(Math.max(-300, Math.min(300, dy)) * 0.0015), mid = (g.lo + g.hi) / 2, half = (g.hi - g.lo) / 2 * k; this.setY(mid - half, mid + half); return true; }
+    if (Math.abs(dx) > Math.abs(dy)) { this.setView(g.first + dx / g.cw, g.slots); return true; }
+    const slots = this.clampSlots(g.slots * Math.exp(Math.max(-300, Math.min(300, dy)) * 0.0015));
+    const under = g.first + (p.x - g.plot.x) / g.cw;
+    this.setView(under - (p.x - g.plot.x) / (g.plot.w / slots), slots);
+    return true;
+  }
+  // Controller thumbstick while pointing at the chart: left/right moves it, up/down zooms.
+  stick(x, y, p, dt) {
+    const g = this.geo; if (!g) return;
+    let first = g.first, slots = g.slots;
+    if (Math.abs(x) > 0.15) { first += x * slots * 0.9 * dt; this.app.chartEvent?.('pan'); }
+    if (Math.abs(y) > 0.15) {
+      const ns = this.clampSlots(slots * Math.exp(y * 1.6 * dt));
+      const px = p && this.inPlot(p) ? p.x : g.plot.x + g.plot.w;
+      const under = first + (px - g.plot.x) / (g.plot.w / slots);
+      first = under - (px - g.plot.x) / (g.plot.w / ns); slots = ns; this.app.chartEvent?.('zoom');
+    }
+    this.setView(first, slots);
+  }
+
   drawBody(ctx, a) {
     const app = this.app, s = app.settings, sym = s.main, iv = s.interval;
     const W = this.W;
@@ -155,26 +326,58 @@ export class MainChart extends Panel {
     bx -= 12;
     btn('next', '›', 46, { size: 30, onClick: () => app.cycleSymbol(1) });
     btn('prev', '‹', 46, { size: 30, onClick: () => app.cycleSymbol(-1) });
+    bx -= 12;
+    btn('draw', 'Draw', 84, { active: this.drawMode, onClick: () => this.setDrawMode(!this.drawMode) });
+    if (this.manual) btn('reset', 'Reset view', 140, { onClick: () => this.resetView() });
 
     const q = app.feed.quote(sym);
     const bars = app.feed.getBars(sym, iv);
     const iy = a.y + 36;
     text(ctx, q ? fmtPrice(q.last) : '—', a.x + 4, iy + 6, { size: 50, weight: 500, fam: F.mono, color: C.white });
-    if (q) {
-      text(ctx, `${q.chg >= 0 ? '+' : ''}${q.chg.toFixed(2)}  ${fmtPct(q.pct)}`, a.x + 240, iy, { size: 28, weight: 600, fam: F.mono, color: colorFor(q.chg) });
+    if (q) text(ctx, `${q.chg >= 0 ? '+' : ''}${q.chg.toFixed(2)}  ${fmtPct(q.pct)}`, a.x + 240, iy, { size: 28, weight: 600, fam: F.mono, color: colorFor(q.chg) });
+    if (this.drawMode) {
+      // the drawing bar: tools, then delete / clear / done
+      let tx = a.x + 540;
+      const tb = (id, label, w, opts) => { this.button(id, tx, a.y + 2, w, 44, label, { size: 20, ...opts }); tx += w + 8; };
+      const count = drawingsFor(sym).length;
+      tb('t-line', 'Trend line', 150, { active: this.tool === 'line', onClick: () => this.setTool('line') });
+      tb('t-level', 'Level', 100, { active: this.tool === 'level', onClick: () => this.setTool('level') });
+      tb('t-del', 'Delete', 104, { disabled: !this.sel, color: C.down, active: !!this.sel, onClick: () => this.deleteSelected() });
+      tb('t-clear', 'Clear all', 124, { disabled: !count, onClick: () => this.clearAll() });
+      tb('t-done', 'Done', 90, { primary: true, onClick: () => this.setDrawMode(false) });
+    } else if (q) {
       text(ctx, `H ${fmtPrice(q.high)}  L ${fmtPrice(q.low)}${q.ext != null ? `  ·  ext ${fmtPrice(q.ext)}` : ''}`, a.x + 540, iy, { size: 22, weight: 500, fam: F.mono, color: C.dim, max: 520 });
     }
     const plot = { x: a.x, y: a.y + 68, w: a.w - 118, h: a.h - 108 };
+    this.geo = null;
     if (bars.length < 2) {
       text(ctx, 'Loading market data…', plot.x + plot.w / 2, plot.y + plot.h / 2, { size: 28, color: C.dim, align: 'center' });
       if (app.feed.status.note) text(ctx, app.feed.status.note, plot.x + plot.w / 2, plot.y + plot.h / 2 + 42, { size: 21, color: C.faint, align: 'center', max: plot.w - 40 });
       return;
     }
-    const sess = chartSession();
+    const sess = chartSession(), ivMs = INTERVAL_MS[iv];
     const closes = bars.map(b => b.c);
     const e5 = ema(closes, 5), e12 = ema(closes, 12), e34 = ema(closes, 34), e50 = ema(closes, 50);
     const vw = vwap(bars);
-    let lo = Math.min(...bars.map(b => b.l)), hi = Math.max(...bars.map(b => b.h));
+    const idxOf = (b) => Math.round((b.t - sess.open) / ivMs);
+    // Automatic view: the session so far with room to the right (as on the website), or the trader's own view.
+    const full = Math.max(bars.length, Math.ceil((sess.close - sess.open) / ivMs)), li = idxOf(bars[bars.length - 1]);
+    const minSlots = { '1min': 45, '5min': 30, '15min': 14 }[iv] || 30;
+    let slots = Math.min(full, Math.max(minSlots, Math.ceil((li + 1) * 1.3) + 1)), first = 0;
+    const key = sym + '|' + iv + '|' + sess.open;
+    if (this.viewKey !== key) { this.viewKey = key; this.view = null; this.ys = null; this.sel = null; this.pending = null; if (this.drag && this.drag.kind !== 'pinch') this.drag = null; }
+    const zoomMax = Math.max(full, 30);
+    if (this.view) {
+      slots = Math.max(MIN_SLOTS, Math.min(zoomMax, this.view.slots));
+      first = Math.max(idxOf(bars[0]) + 3 - slots, Math.min(li - 2, this.view.first));
+      this.view = { first, slots };
+    }
+    const cw = plot.w / slots;
+    const xi = (i) => plot.x + (i - first + 0.5) * cw;
+    const vis = [];
+    bars.forEach((b, k) => { const i = idxOf(b); if (i > first - 1 && i < first + slots) vis.push({ b, i, k }); });
+    if (!vis.length) { text(ctx, 'No candles here. Double-pinch the chart to reset.', plot.x + plot.w / 2, plot.y + plot.h / 2, { size: 24, color: C.dim, align: 'center' }); this.geo = { plot, first, slots, cw, lo: 0, hi: 1, autoLo: 0, autoHi: 1, open: sess.open, ivMs, zoomMax }; return; }
+    let lo = Math.min(...vis.map(p => p.b.l)), hi = Math.max(...vis.map(p => p.b.h));
     const lv = s.show.gex ? app.levelsFor(sym) : null;
     const span0 = hi - lo || hi * 0.002;
     const offscreen = [];
@@ -185,53 +388,53 @@ export class MainChart extends Panel {
       for (const l of lines) { if (l.v > hi && l.v - hi < span0 * 0.6) hi = l.v; else if (l.v < lo && lo - l.v < span0 * 0.6) lo = l.v; }
     }
     const pad = (hi - lo) * 0.08 || 0.1; lo -= pad; hi += pad;
+    const autoLo = lo, autoHi = hi;
+    if (this.ys) { lo = this.ys.lo; hi = this.ys.hi; }
+    this.geo = { plot, first, slots, cw, lo, hi, autoLo, autoHi, open: sess.open, ivMs, zoomMax };
     const yv = (v) => plot.y + plot.h - ((v - lo) / (hi - lo)) * plot.h;
-    const ivMs = { '1min': 60e3, '5min': 300e3, '15min': 900e3 }[iv];
-    const slots = Math.max(bars.length, Math.ceil((sess.close - sess.open) / ivMs));
-    const cw = plot.w / slots;
-    const xi = (i) => plot.x + (i + 0.5) * cw;
-    const idxOf = (b) => Math.round((b.t - sess.open) / ivMs);
+    // grid, price axis
     const step = niceStep((hi - lo) / 6);
     for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
       const y = yv(v);
       ctx.strokeStyle = C.grid; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(plot.x, y); ctx.lineTo(plot.x + plot.w, y); ctx.stroke();
       text(ctx, fmtPrice(v), plot.x + plot.w + 10, y + 7, { size: 20, weight: 500, fam: F.mono, color: C.faint });
     }
-    for (let h = 10; h <= 16; h++) {
-      const t = sess.open + (h - 9.5) * 3600e3;
-      if (t > sess.close) break;
-      const x = plot.x + ((t - sess.open) / ivMs) * cw;
+    // time axis: labels at least ~120 units apart
+    const minStep = [5, 15, 30, 60, 120].find(m => (m * 60e3 / ivMs) * cw >= 120) || 120;
+    for (let t = sess.open + minStep * 60e3; t <= sess.close; t += minStep * 60e3) {
+      const x = plot.x + ((t - sess.open) / ivMs - first) * cw;
+      if (x < plot.x || x > plot.x + plot.w) continue;
       ctx.strokeStyle = C.grid; ctx.beginPath(); ctx.moveTo(x, plot.y); ctx.lineTo(x, plot.y + plot.h); ctx.stroke();
-      text(ctx, fmtHM(t).replace(':00', '').replace(' ', '').toLowerCase(), x, plot.y + plot.h + 30, { size: 20, weight: 500, color: C.faint, align: 'center' });
+      const lab = minStep >= 60 ? fmtHM(t).replace(':00', '').replace(' ', '').toLowerCase() : fmtHM(t).replace(' ', '').toLowerCase();
+      text(ctx, lab, x, plot.y + plot.h + 30, { size: 20, weight: 500, color: C.faint, align: 'center' });
     }
-    const pts = bars.map((b) => ({ b, i: idxOf(b) }));
+    ctx.save(); ctx.beginPath(); ctx.rect(plot.x, plot.y, plot.w, plot.h); ctx.clip();
     if (s.show.ema) {
       const cloud = (fa, fb, upCol, dnCol) => {
-        for (let k = 0; k < pts.length - 1; k++) {
-          const A = fa[k], B = fb[k], A2 = fa[k + 1], B2 = fb[k + 1];
+        for (let n = 0; n < vis.length - 1; n++) {
+          const k = vis[n].k, k2 = vis[n + 1].k, A = fa[k], B = fb[k], A2 = fa[k2], B2 = fb[k2];
           if (A == null || B == null || A2 == null || B2 == null) continue;
           ctx.fillStyle = A >= B ? upCol : dnCol;
-          ctx.beginPath(); ctx.moveTo(xi(pts[k].i), yv(A)); ctx.lineTo(xi(pts[k + 1].i), yv(A2)); ctx.lineTo(xi(pts[k + 1].i), yv(B2)); ctx.lineTo(xi(pts[k].i), yv(B)); ctx.closePath(); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(xi(vis[n].i), yv(A)); ctx.lineTo(xi(vis[n + 1].i), yv(A2)); ctx.lineTo(xi(vis[n + 1].i), yv(B2)); ctx.lineTo(xi(vis[n].i), yv(B)); ctx.closePath(); ctx.fill();
         }
       };
       cloud(e34, e50, 'rgba(110,195,242,0.13)', 'rgba(240,150,74,0.13)');
       cloud(e5, e12, 'rgba(62,207,142,0.22)', 'rgba(242,112,107,0.22)');
     }
     const bw = Math.max(1.5, cw * 0.66);
-    for (const p of pts) {
+    for (const p of vis) {
       const b = p.b, x = xi(p.i), up = b.c >= b.o;
       const col = up ? C.up : C.down;
-      ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.2, Math.min(2.5, cw * 0.15));
+      ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.2, Math.min(3, cw * 0.15));
       ctx.beginPath(); ctx.moveTo(x, yv(b.h)); ctx.lineTo(x, yv(b.l)); ctx.stroke();
       const y1 = yv(Math.max(b.o, b.c)), y2 = yv(Math.min(b.o, b.c));
-      ctx.fillStyle = up ? C.up : C.down;
+      ctx.fillStyle = col;
       ctx.fillRect(x - bw / 2, y1, bw, Math.max(1.5, y2 - y1));
     }
     if (s.show.vwap) {
       ctx.strokeStyle = C.gold; ctx.lineWidth = 1.5 * S; ctx.setLineDash([6 * S, 4 * S]); ctx.beginPath();
-      pts.forEach((p, k) => { const x = xi(p.i), y = yv(vw[k]); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      vis.forEach((p, n) => { const x = xi(p.i), y = yv(vw[p.k]); n ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
       ctx.stroke(); ctx.setLineDash([]);
-      chartLabel(ctx, 'VWAP', xi(pts[pts.length - 1].i) - 10, yv(vw[vw.length - 1]) + 26, { size: 19, color: C.gold, align: 'right' });
     }
     if (lv) {
       for (const l of lines) {
@@ -239,37 +442,65 @@ export class MainChart extends Panel {
         const y = yv(l.v);
         ctx.strokeStyle = l.col; ctx.lineWidth = l.w; ctx.setLineDash(l.dotted ? [3, 7] : [9 * S, 6 * S]);
         ctx.beginPath(); ctx.moveTo(plot.x, y); ctx.lineTo(plot.x + plot.w, y); ctx.stroke(); ctx.setLineDash([]);
-        chartLabel(ctx, `${l.name} ${fmtPrice(l.v)}`, l.dotted ? plot.x + plot.w - 12 : plot.x + 12, y - 8, { size: l.w > 2 ? 20 : 17, color: l.col, align: l.dotted ? 'right' : 'left' });
       }
+    }
+    // the trader's drawings: violet, the selected one white with handles
+    const dl = drawingsFor(sym);
+    for (const d of dl) {
+      const selc = d.id === this.sel, col = selc ? C.white : C.violet;
+      ctx.strokeStyle = col; ctx.lineWidth = selc ? 4 : 3;
+      if (d.type === 'level') { const y = yv(d.p); ctx.beginPath(); ctx.moveTo(plot.x, y); ctx.lineTo(plot.x + plot.w, y); ctx.stroke(); continue; }
+      const ax = this.xOf(d.a.t), ay = yv(d.a.p), bx2 = this.xOf(d.b.t), by = yv(d.b.p);
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx2, by); ctx.stroke();
+      if (selc) for (const [hx, hy] of [[ax, ay], [bx2, by]]) { ctx.beginPath(); ctx.arc(hx, hy, 11, 0, 7); ctx.fillStyle = C.ink; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = C.white; ctx.stroke(); }
+    }
+    // a line being placed: from its first point to where the pointer is
+    const h = this.hover;
+    const live = this.drag && this.drag.kind === 'new' ? this.drag : this.pending && h && this.inPlot(h) ? { a: this.pending, b: { t: this.tOf(h.x), p: this.pOf(h.y) } } : null;
+    if (live) {
+      ctx.strokeStyle = C.violet; ctx.lineWidth = 3; ctx.setLineDash([10, 8]);
+      ctx.beginPath(); ctx.moveTo(this.xOf(live.a.t), yv(live.a.p)); ctx.lineTo(this.xOf(live.b.t), yv(live.b.p)); ctx.stroke(); ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(this.xOf(live.a.t), yv(live.a.p), 9, 0, 7); ctx.fillStyle = C.violet; ctx.fill();
+    }
+    ctx.restore();
+    // labels on top of everything, inside the plot
+    if (s.show.vwap) { const lp = vis[vis.length - 1]; const vy = yv(vw[lp.k]); if (vy > plot.y + 10 && vy < plot.y + plot.h - 10) chartLabel(ctx, 'VWAP', Math.min(plot.x + plot.w - 10, xi(lp.i) - 10), vy + 26, { size: 19, color: C.gold, align: 'right' }); }
+    if (lv) {
+      for (const l of lines) { if (l.v > hi || l.v < lo) continue; chartLabel(ctx, `${l.name} ${fmtPrice(l.v)}`, l.dotted ? plot.x + plot.w - 12 : plot.x + 12, yv(l.v) - 8, { size: l.w > 2 ? 20 : 17, color: l.col, align: l.dotted ? 'right' : 'left' }); }
       if (offscreen.length) text(ctx, offscreen.join('   '), plot.x + plot.w - 12, plot.y + 28, { size: 19, weight: 500, color: C.dim, align: 'right' });
       text(ctx, levelSourceLabel(lv), plot.x + plot.w - 12, plot.y + plot.h - 12, { size: 17, weight: 500, color: lv.source === 'demo' ? C.amber : C.faint, align: 'right' });
     }
-    const last = q ? q.last : bars[bars.length - 1].c;
-    const ly = yv(Math.min(hi, Math.max(lo, last)));
+    for (const d of dl) if (d.type === 'level' && d.p <= hi && d.p >= lo) { const y = yv(d.p); rrect(ctx, plot.x + plot.w + 2, y - 15, 110, 30, 6); ctx.fillStyle = d.id === this.sel ? C.white : C.violet; ctx.fill(); text(ctx, fmtPrice(d.p), plot.x + plot.w + 57, y + 1, { size: 19, weight: 600, fam: F.mono, color: C.ink, align: 'center', base: 'middle' }); }
+    const lastBar = bars[bars.length - 1], last = q ? q.last : lastBar.c;
+    const ly = yv(Math.min(hi, Math.max(lo, last))), lx = Math.min(plot.x + plot.w, Math.max(plot.x, xi(idxOf(lastBar))));
     ctx.strokeStyle = C.sky; ctx.lineWidth = 1.5; ctx.setLineDash([4, 6]);
-    ctx.beginPath(); ctx.moveTo(xi(pts[pts.length - 1].i), ly); ctx.lineTo(plot.x + plot.w, ly); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(plot.x + plot.w, ly); ctx.stroke(); ctx.setLineDash([]);
     rrect(ctx, plot.x + plot.w + 2, ly - 17, 110, 34, 6); ctx.fillStyle = C.sky; ctx.fill();
     text(ctx, fmtPrice(last), plot.x + plot.w + 57, ly + 1, { size: 21, weight: 600, fam: F.mono, color: '#04121c', align: 'center', base: 'middle' });
-    const h = this.hover;
-    if (h && h.x > plot.x && h.x < plot.x + plot.w && h.y > plot.y && h.y < plot.y + plot.h) {
-      const slot = Math.floor((h.x - plot.x) / cw);
-      let best = null; for (const p of pts) if (!best || Math.abs(p.i - slot) < Math.abs(best.i - slot)) best = p;
-      if (best && Math.abs(best.i - slot) <= 2) {
-        const x = xi(best.i);
-        ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.moveTo(x, plot.y); ctx.lineTo(x, plot.y + plot.h); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(plot.x, h.y); ctx.lineTo(plot.x + plot.w, h.y); ctx.stroke();
+    // what to do next, when a drawing tool is in hand
+    const hint = this.tool === 'line' ? (this.pending ? 'Now pinch where the line ends' : 'Pinch where the line starts (or pinch and drag)') : this.tool === 'level' ? 'Pinch a price to put a level there' : this.sel ? 'Pinch and drag to move it · Delete removes it' : this.drawMode ? 'Pick a tool, or pinch a drawing to select it' : '';
+    if (hint) chartLabel(ctx, hint, plot.x + 12, plot.y + plot.h - 14, { size: 20, color: C.violet });
+    // crosshair and the candle under the pointer
+    if (h && this.inPlot(h) && !(this.drag && this.drag.moved && this.drag.kind === 'pan')) {
+      const slot = Math.floor((h.x - plot.x) / cw + first);
+      let best = null; for (const p of vis) if (!best || Math.abs(p.i - slot) < Math.abs(best.i - slot)) best = p;
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1.5;
+      if (best && Math.abs(best.i - slot) <= 2) { const x = xi(best.i); ctx.beginPath(); ctx.moveTo(x, plot.y); ctx.lineTo(x, plot.y + plot.h); ctx.stroke(); }
+      ctx.beginPath(); ctx.moveTo(plot.x, h.y); ctx.lineTo(plot.x + plot.w, h.y); ctx.stroke();
+      if (best && Math.abs(best.i - slot) <= 2 && !hint) {
         const b = best.b;
         const line = `${fmtHM(b.t)}  O ${fmtPrice(b.o)}  H ${fmtPrice(b.h)}  L ${fmtPrice(b.l)}  C ${fmtPrice(b.c)}  V ${fmtVol(b.v)}`;
         rrect(ctx, plot.x + 8, plot.y + 8, plot.w * 0.74, 40, 9); ctx.fillStyle = 'rgba(5,7,9,0.92)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 2; ctx.stroke();
         text(ctx, line, plot.x + 22, plot.y + 36, { size: 21, weight: 500, fam: F.mono, color: C.white, max: plot.w * 0.72 - 24 });
-        const pv = lo + ((plot.y + plot.h - h.y) / plot.h) * (hi - lo);
-        rrect(ctx, plot.x + plot.w + 2, h.y - 15, 110, 30, 6); ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fill();
-        text(ctx, fmtPrice(pv), plot.x + plot.w + 57, h.y + 1, { size: 19, weight: 600, fam: F.mono, color: '#04121c', align: 'center', base: 'middle' });
       }
+      const pv = lo + ((plot.y + plot.h - h.y) / plot.h) * (hi - lo);
+      rrect(ctx, plot.x + plot.w + 2, h.y - 15, 110, 30, 6); ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fill();
+      text(ctx, fmtPrice(pv), plot.x + plot.w + 57, h.y + 1, { size: 19, weight: 600, fam: F.mono, color: '#04121c', align: 'center', base: 'middle' });
     }
-    if (app.feed.status.mode === 'demo') text(ctx, 'Demo data, not real prices', a.x + a.w - 118, iy + 4, { size: 20, weight: 600, color: C.amber, align: 'right' });
-    else if (app.feed.status.mode === 'delayed' && !app.feed.bridgeLive) text(ctx, 'Delayed ~15 min', a.x + a.w - 118, iy + 4, { size: 19, weight: 500, color: C.faint, align: 'right' });
+    if (!this.drawMode) {
+      if (app.feed.status.mode === 'demo') text(ctx, 'Demo data, not real prices', a.x + a.w - 118, iy + 4, { size: 20, weight: 600, color: C.amber, align: 'right' });
+      else if (app.feed.status.mode === 'delayed' && !app.feed.bridgeLive) text(ctx, 'Delayed ~15 min', a.x + a.w - 118, iy + 4, { size: 19, weight: 500, color: C.faint, align: 'right' });
+    }
   }
 }
 export function levelSourceLabel(lv) {
@@ -909,6 +1140,34 @@ function drawGestureFrame(ctx, icon, phase, x, y, w, h) {
   } else if (icon === 'apart') {
     if (!fin) { drawHand(ctx, cx - s * 0.32, cy + 10, s * 0.62, 'open', -1); drawHand(ctx, cx + s * 0.32, cy + 10, s * 0.62, 'open'); text(ctx, 'hands together', cx, y + h - 12, { size: 18, weight: 600, color: C.dim, align: 'center' }); }
     else { drawHand(ctx, x + w * 0.16, cy + 10, s * 0.62, 'open', -1); drawHand(ctx, x + w * 0.84, cy + 10, s * 0.62, 'open'); for (let k = 0; k < 3; k++) miniScreen(ctx, x + w * (0.3 + k * 0.14), y + 12, w * 0.12, h * 0.16, C.line); text(ctx, 'wider than shoulders', cx, y + h - 12, { size: 18, weight: 600, color: C.dim, align: 'center' }); }
+  } else if (icon === 'resize') {
+    const k = fin ? 1 : 0.62, sw = w * 0.5 * k, sh = h * 0.42 * k;
+    miniScreen(ctx, cx - sw / 2, cy - sh / 2 - 6, sw, sh, fin ? C.gold : C.dim);
+    drawHand(ctx, cx - sw / 2 - 6, cy + sh / 2 + 18, s * 0.5, 'pinch', -1); drawHand(ctx, cx + sw / 2 + 6, cy + sh / 2 + 18, s * 0.5, 'pinch');
+    if (fin) { arrow(ctx, cx - sw * 0.2, y + 18, cx - sw / 2 + 4, y + 18, C.gold); arrow(ctx, cx + sw * 0.2, y + 18, cx + sw / 2 - 4, y + 18, C.gold); }
+  } else if (icon === 'max') {
+    if (!fin) { miniScreen(ctx, x + w * 0.1, y + h * 0.18, w * 0.34, h * 0.3); miniScreen(ctx, x + w * 0.56, y + h * 0.18, w * 0.34, h * 0.3, C.line); drawHand(ctx, x + w * 0.73, y + h * 0.72, s * 0.55, 'pinch'); text(ctx, '× 2', x + w * 0.88, y + h * 0.66, { size: 22, weight: 700, color: C.gold, align: 'center' }); }
+    else miniScreen(ctx, x + w * 0.1, y + h * 0.1, w * 0.8, h * 0.62, C.gold);
+  } else if (icon === 'pan' || icon === 'trend') {
+    const bx0 = x + w * 0.1, bw0 = w * 0.8, by0 = y + h * 0.12, bh0 = h * 0.5, sh2 = icon === 'pan' && fin ? -w * 0.16 : 0;
+    ctx.save(); ctx.beginPath(); ctx.rect(bx0, by0, bw0, bh0); ctx.clip();
+    const ys = [0.6, 0.5, 0.55, 0.4, 0.45, 0.3, 0.35, 0.2, 0.28, 0.15, 0.22, 0.1];
+    ys.forEach((v, k) => { const cx2 = bx0 + 14 + k * (bw0 / 9) + sh2, cy2 = by0 + bh0 * v, up = k % 2 === 0; ctx.fillStyle = up ? C.up : C.down; ctx.fillRect(cx2 - 5, cy2, 10, bh0 * 0.16); ctx.fillRect(cx2 - 1, cy2 - 8, 2, bh0 * 0.16 + 16); });
+    ctx.restore();
+    rrect(ctx, bx0, by0, bw0, bh0, 6); ctx.strokeStyle = C.hair2; ctx.lineWidth = 2; ctx.stroke();
+    if (icon === 'trend') {
+      const ax = bx0 + 20, ay = by0 + bh0 * 0.75, ex = fin ? bx0 + bw0 - 20 : bx0 + 26, ey = fin ? by0 + bh0 * 0.18 : ay - 4;
+      ctx.strokeStyle = C.violet; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.fillStyle = C.violet; ctx.beginPath(); ctx.arc(ax, ay, 7, 0, 7); ctx.fill();
+      drawHand(ctx, ex + 10, ey + h * 0.38, s * 0.5, 'pinch');
+    } else {
+      drawHand(ctx, cx + (fin ? -w * 0.16 : 0), y + h * 0.82, s * 0.5, 'pinch');
+      if (fin) arrow(ctx, cx + w * 0.12, y + h * 0.66, cx - w * 0.12, y + h * 0.66, C.gold);
+    }
+  } else if (icon === 'palm') {
+    drawHand(ctx, cx, cy + s * 0.25, s * (fin ? 1.0 : 0.8), 'open');
+    if (!fin) { text(ctx, 'palm toward you', cx, y + h - 10, { size: 18, weight: 600, color: C.dim, align: 'center' }); }
+    else { ctx.strokeStyle = C.gold; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(cx, cy + s * 0.5, s * 0.36, 0, 7); ctx.stroke(); pill(ctx, cx, y + 6, 'Listening…', C.amber, { size: 18, align: 'center' }); }
   } else if (icon === 'orb') {
     const ox = cx + s * 0.1, oy = y + h * 0.28;
     ctx.fillStyle = hexA(C.gold, 0.18); ctx.beginPath(); ctx.arc(ox, oy, s * 0.36, 0, 7); ctx.fill(); ctx.strokeStyle = C.gold; ctx.lineWidth = 3; ctx.stroke(); ctx.fillStyle = C.gold; ctx.beginPath(); ctx.arc(ox, oy, s * 0.12, 0, 7); ctx.fill();
