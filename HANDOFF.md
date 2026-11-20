@@ -64,7 +64,9 @@ zoom and draw on, and Claude built it in the website (`indai/js/chart.js`, `inda
 Who is who, in the owner's words (November 20): **Ikpa** is the Claude bot on the back end and the website's chart
 work (the session that wrote this note). **Papilo** is the Claude bot that builds the Meta Quest app; its current
 brief is `handoff/QUEST-THEME-BRIEF.md`. **ChatGPT** takes the website's remaining front-end work from
-`handoff/CHATGPT-FRONTEND-HANDOFF.md`.
+`handoff/CHATGPT-FRONTEND-HANDOFF.md`. **Perplexity** is the research desk, twice over: inside INDAI through its API
+(item 16 below), and on the team through the owner, checking facts the builders cannot reach
+(`handoff/PERPLEXITY-BRIEF.md`). She does not push code.
 
 Why it was first split this way round: the front end needs a real headset loop (WebXR emulator tests, hand tracking, on-device
 speech models, APK builds) that is already set up and passing here. The back end is plain HTTP + SQL with a
@@ -124,6 +126,9 @@ every function answers `OPTIONS` with open CORS; nothing secret is ever returned
 15. **Bridge extended hours.** `tradingview/indai-bridge.pine` asks for the extended session by default. The owner pasted it and re-created the alert on a 1-minute chart at 00:27 ET on November 20; after-hours one-minute candles (19:59 ET) arrived from then on. The alert must sit on a 1-minute chart: for a few minutes that night a second alert on a 5-minute chart was sending `tf:"5"` candles, and because the table's key is `(ticker, t)` such a candle would have replaced the one-minute candle that starts at the same moment. Migration `20261120052807` now keeps a stored one-minute candle in that case. Still open: the key itself does not include the timeframe, and nothing tells the owner when the bridge is on the wrong timeframe.
 
 16. **Three brains.** Live in version 11 of `indai-brain`, waiting for the owner's `PERPLEXITY_API_KEY` (see "Three brains" in `supabase/OPERATIONS.md`). Perplexity researches, Claude judges, ChatGPT gives a second opinion and stands in when Claude cannot answer. Still open: the first run against the real providers; conversation (`talk`) still searches with Claude alone, and Perplexity should become its search too once the first researched answers have been seen working; both apps should show `brains` and `result.second`.
+
+17. **Website requests from ChatGPT (see "Website handback to Ikpa").** Received, not built yet: the `drawings` and `tuning` profile keys with their merge rules, and the Schwab order contract. Until then the website keeps that work on the device, as it says.
+18. **Live ticks and extended hours.** The website now draws pre-market and after-hours candles from the bridge's stored candles and shows the extended-hours price under the regular one (`indai/js/ext.js` in the website repository; Ikpa built it at the owner's request on November 20, with ChatGPT's pull request already merged underneath). The owner added a Finnhub key on his device the same morning for trade-by-trade prices. Not known yet: whether Finnhub's free stream carries pre-market trades. The lasting answer for live data and option chains is still a source the owner is entitled to (item 14).
 
 ## Front-end backlog (Claude)
 
