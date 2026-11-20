@@ -130,6 +130,12 @@ every function answers `OPTIONS` with open CORS; nothing secret is ever returned
 17. **Website requests from ChatGPT (see "Website handback to Ikpa").** Received, not built yet: the `drawings` and `tuning` profile keys with their merge rules, and the Schwab order contract. Until then the website keeps that work on the device, as it says.
 18. **Live ticks and extended hours.** The website now draws pre-market and after-hours candles from the bridge's stored candles and shows the extended-hours price under the regular one (`indai/js/ext.js` in the website repository; Ikpa built it at the owner's request on November 20, with ChatGPT's pull request already merged underneath). The owner added a Finnhub key on his device the same morning for trade-by-trade prices. Not known yet: whether Finnhub's free stream carries pre-market trades. The lasting answer for live data and option chains is still a source the owner is entitled to (item 14).
 
+19. **Market Pattern Atlas.** The owner's book, *The Market Pattern Atlas*, arrived as an engine in `atlas/` (no data:
+    the repository is public, and the knowledge base goes in a private table). Ikpa's tickets ATLAS-0 to ATLAS-8 are in
+    `handoff/IKPA-ATLAS-TASKS.md`: load the data privately, an atlas read on every rated idea (`result.atlas`, additive),
+    TA-Lib-matching candle detectors, VIX for the red hat, a no-model `mode:"atlas"` endpoint, chart marks on the website,
+    the formula desk in the options calculator, and logging the owner's live results against the atlas baseline.
+
 ## Front-end backlog (Claude)
 
 1. Tune gestures and voice on the real headset from the owner's feedback (levels: easy / normal / strict).
