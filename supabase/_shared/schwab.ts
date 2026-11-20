@@ -43,7 +43,16 @@ async function tokenCall(a: App, form: Record<string, string>, f: Fetch) {
     signal: AbortSignal.timeout(10_000),
   });
   const j = await r.json().catch(() => ({}));
-  return { status: r.status, access: typeof j?.access_token === "string" ? j.access_token as string : null, refresh: typeof j?.refresh_token === "string" ? j.refresh_token as string : null, seconds: Number(j?.expires_in) > 0 ? Number(j.expires_in) : 1800 };
+  return { status: r.status, error: typeof j?.error === "string" ? j.error.slice(0, 60) : null, access: typeof j?.access_token === "string" ? j.access_token as string : null, refresh: typeof j?.refresh_token === "string" ? j.refresh_token as string : null, seconds: Number(j?.expires_in) > 0 ? Number(j.expires_in) : 1800 };
+}
+// Does Schwab know this app's key and secret? Asked with a refresh token that cannot be real: Schwab answers 401
+// (invalid_client) when it does not recognise the app, and 400 when it does and, rightly, refuses the token.
+export async function appRecognised(a: App, f: Fetch = (u, i) => fetch(u, i)) {
+  try {
+    const r = await tokenCall(a, { grant_type: "refresh_token", refresh_token: "indai-check-not-a-token" }, f);
+    const unknown = r.status === 401 || r.error === "invalid_client";
+    return { recognised: unknown ? false : r.status === 400 ? true : null, status: r.status, error: r.error };
+  } catch { return { recognised: null, status: 0, error: null }; }
 }
 
 export const tokenStore: Store = {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { HttpError } from "../_shared/http.ts";
-import { authorizeUrl, codeFrom, OAUTH, schwabApp, schwabSession, SIGN_IN_MS, type Tokens } from "../_shared/schwab.ts";
+import { appRecognised, authorizeUrl, codeFrom, OAUTH, schwabApp, schwabSession, SIGN_IN_MS, type Tokens } from "../_shared/schwab.ts";
 import { chainAsks, chainFrom, dailyFrom, minutesFrom, quoteFrom } from "../indai-market/schwab.ts";
 
 // The owner's Schwab sign-in (supabase/_shared/schwab.ts) and the shapes Schwab's data is turned into
@@ -128,6 +128,17 @@ Deno.test("a code Schwab rejects is explained; an outage is not blamed on the co
   w.answer = () => new Response("", { status: 503 });
   await assert.rejects(() => instance().connect("fine-code-1"), (e: unknown) => e instanceof HttpError && e.status === 502 && e.code === "schwab");
   assert.equal(w.stored, null);
+});
+
+Deno.test("the app check tells a key Schwab does not know from one it does", async () => {
+  const sent: Record<string, string>[] = [];
+  const ask = (response: () => Response) => appRecognised(APP, (_url, init) => { sent.push(Object.fromEntries(new URLSearchParams(String(init.body)))); return Promise.resolve(response()); });
+  assert.deepEqual(await ask(() => Response.json({ error: "invalid_client", error_description: "Unauthorized" }, { status: 401 })), { recognised: false, status: 401, error: "invalid_client" });
+  assert.deepEqual(await ask(() => Response.json({ error: "invalid_client" }, { status: 400 })), { recognised: false, status: 400, error: "invalid_client" });
+  assert.deepEqual(await ask(() => Response.json({ error: "refresh_token_authentication_error", error_description: "Failed refresh token authentication [tokenDigest=abc]" }, { status: 400 })), { recognised: true, status: 400, error: "refresh_token_authentication_error" });
+  assert.deepEqual(await ask(() => new Response("", { status: 503 })), { recognised: null, status: 503, error: null });
+  assert.deepEqual(await appRecognised(APP, () => Promise.reject(new Error("network"))), { recognised: null, status: 0, error: null });
+  assert.ok(sent.every((f) => f.grant_type === "refresh_token" && f.refresh_token === "indai-check-not-a-token"));
 });
 
 // ---- the data shapes

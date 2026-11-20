@@ -5,12 +5,13 @@ import { serve } from "../_shared/http.ts";
 //   POST {op:"start"}              the address at Schwab where he signs in
 //   POST {op:"finish", url}        the address his browser ended on (it holds a one-time code): INDAI keeps the tokens
 //   POST {op:"disconnect"}         forget the tokens
+//   POST {op:"check"}              does Schwab recognise the app's key and secret (for when its sign-in page refuses)
 // Every request needs the owner: his passcode header or his own sign-in. Tokens are never sent back.
 // Secrets he sets in Supabase himself: SCHWAB_APP_KEY, SCHWAB_APP_SECRET (and SCHWAB_CALLBACK if it is not https://127.0.0.1).
 import { account } from "../_shared/auth.ts";
 import { db, rpc } from "../_shared/db.ts";
 import { failure, HttpError, objectBody } from "../_shared/http.ts";
-import { authorizeUrl, codeFrom, MARKET, schwabApp, schwabSession } from "../_shared/schwab.ts";
+import { appRecognised, authorizeUrl, codeFrom, MARKET, schwabApp, schwabSession } from "../_shared/schwab.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -33,8 +34,9 @@ serve("indai-schwab", async (req) => {
     if (body.op === "status") return json(await session.status());
     if (!app) throw new HttpError(503, "not_configured", "Add SCHWAB_APP_KEY and SCHWAB_APP_SECRET to the Supabase secrets first.");
     if (body.op === "start") return json({ url: authorizeUrl(app), callback: app.callback });
+    if (body.op === "check") return json({ callback: app.callback, ...await appRecognised(app) });
     if (body.op === "disconnect") { await session.disconnect(); return json(await session.status()); }
-    if (body.op !== "finish") throw new HttpError(400, "bad_request", "Choose status, start, finish or disconnect.");
+    if (body.op !== "finish") throw new HttpError(400, "bad_request", "Choose status, start, check, finish or disconnect.");
     const code = codeFrom(body.url ?? body.code);
     if (!code) throw new HttpError(400, "no_code", "That is not the address Schwab sent you to. After you approve, copy the whole address of the page that fails to load (it starts with " + app.callback + ") and paste it here.");
     const token = await session.connect(code);
