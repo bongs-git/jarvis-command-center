@@ -63,9 +63,12 @@ Include used_ids for supplied memories that actually informed this reply, and re
 Reply with ONLY one JSON object, no markdown:
 {"spoken":"what you say out loud: 1-3 natural sentences, no lists or symbols","summary":["optional: up to 4 short lines of detail for the screen"],"command":"optional: one command to run, in plain words","heard_as":"optional: if the speech recognizer clearly garbled their words, what they actually said","remember":["optional: new things to keep in long-term memory"],"forget":["optional: memory ids to delete, only when the trader asks you to forget something"]}`;
 
+// Room for a researched verdict or answer. At 2,500 every verdict from the afternoon of November 19 on was cut off
+// before its JSON was complete ("502 parse"): the apps had begun sending more context, and the reply grew with it.
+const RESEARCH_REPLY_TOKENS = 6000;
 async function callClaude(key: string, model: string, system: string, userText: string, opts: { history?: any[]; maxTokens?: number; searches?: number } = {}) {
   const messages: any[] = [...(opts.history ?? []), { role: "user", content: userText }];
-  let finalText = "";
+  let finalText = "", stop = "";
   const sources: { title: string; url: string }[] = [];
   let usage: any = null;
   for (let turn = 0; turn < 4; turn++) {
@@ -82,6 +85,7 @@ async function callClaude(key: string, model: string, system: string, userText: 
     if (!r.ok) { await settle({input_tokens:0,output_tokens:0}); throw new HttpError(502,"upstream","The language provider rejected the request."); }
     await settle(j.usage);
     usage = j.usage;
+    stop = typeof j.stop_reason === "string" ? j.stop_reason : "";
     for (const b of j.content ?? []) {
       if (b.type === "text") finalText += b.text;
       if (b.type === "web_search_tool_result" && Array.isArray(b.content)) {
@@ -91,7 +95,7 @@ async function callClaude(key: string, model: string, system: string, userText: 
     if (j.stop_reason === "pause_turn") { messages.push({ role: "assistant", content: j.content }); finalText = ""; continue; }
     break;
   }
-  return { finalText, sources, usage };
+  return { finalText, sources, usage, stop };   // stop: why the model stopped; "max_tokens" means the reply was cut off
 }
 
 serve("indai-brain",async (req) => {
@@ -193,7 +197,7 @@ serve("indai-brain",async (req) => {
   try {
     const answer = await think({
       mode, depth, model, system, userText, evidence, now, question, idea: body?.idea, context: body?.context,
-      claude: (text, searches) => callClaude(key, model, system, text, searches == null ? {} : { searches }),
+      claude: (text, searches) => callClaude(key, model, system, text, { maxTokens: RESEARCH_REPLY_TOKENS, ...(searches == null ? {} : { searches }) }),
     });
     return json(answer.body, answer.status);
   } catch (e) {

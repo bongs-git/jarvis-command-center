@@ -137,7 +137,8 @@ From version 11, `indai-brain` can answer a researched request (`trade` and `cha
 
 - With neither key set nothing calls out and the function answers as version 10 did.
 - Claude's rating always stands. A second opinion that disagrees lowers `confidence` (10 for one step apart, 25 for green against red), adds one line to `summary` and one sentence to `spoken`. It is kept in `result.second`.
-- A failed research step or second opinion never fails the answer: Claude then searches as before. The answer's `brains` list says who did what, and the function logs one line per answer (`"brains":[…]`, with the provider's error type in `detail`).
+- A failed research step or second opinion never fails the answer: Claude then searches as before. The answer's `brains` list says who did what, and the function logs one line per answer that involved more than Claude or in which a brain failed (`"brains":[…]`, with the provider's error type in `detail`). When Claude's reply is incomplete the step carries `stop` (why the model stopped; `max_tokens` means it was cut off at the reply limit) and `out` (tokens written). The words of the question and the answer are never logged.
+- A researched reply may be 6,000 tokens long (`RESEARCH_REPLY_TOKENS`). At 2,500, every verdict between the afternoons of November 19 and 20 was cut off before its JSON was complete. To see how verdicts are doing: in the function's logs, lines with `"mode":"trade"` give the status and the time taken; a `502` with a `"brains"` line beside it says why.
 - A spent daily budget or a refused request is final. ChatGPT stands in for an outage or a cut-off reply, never around the budget.
 - Every outside call reserves and settles tokens in the same daily budget as Claude (`INDAI_DAILY_TOKEN_BUDGET`).
 - Perplexity is sent the question, the parsed idea, the ticker and the headlines on screen. ChatGPT is sent the context Claude gets. Neither is sent the trader's name.

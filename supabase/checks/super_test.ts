@@ -243,6 +243,15 @@ Deno.test("A cut-off reply from Claude is rescued by ChatGPT, or is the same 502
   assert.deepEqual([saved.status, saved.body.model, (saved.body.result as any).rag], [200, "gpt-6.1-sol", "GREEN"]);
   const alone = await think(asking(cut).a, rig({}, () => assert.fail("no provider")).io);
   assert.deepEqual([alone.status, alone.body.error, alone.body.raw, (alone.body.brains as any[])[0].error], [502, "parse", "", "incomplete"]);
+  // why it was incomplete is on the step and in the log, so the next one can be diagnosed from the logs alone
+  const limit = { claude: async () => ({ finalText: 'Checking the news first. {"rag":"GRE', sources: [], usage: { input_tokens: 9000, output_tokens: 6000 }, stop: "max_tokens" }) };
+  const solo = rig({}, () => assert.fail("no provider"));
+  const short = await think(asking(limit).a, solo.io);
+  assert.deepEqual([short.status, short.body.error, short.body.message, short.body.brains], [502, "parse", "The answer was cut off before it was complete. Please ask again.", [{ brain: "claude", role: "verdict", model: "claude-sonnet-5-5", ok: false, ms: (short.body.brains as any[])[0].ms, tokens: 15000, error: "incomplete", stop: "max_tokens", out: 6000 }]]);
+  assert.equal(solo.logs.length, 1);
+  assert.deepEqual([(solo.logs[0] as any).fn, (solo.logs[0] as any).mode, (solo.logs[0] as any).brains[0].stop, JSON.stringify(solo.logs[0]).includes("Checking the news")], ["indai-brain", "trade", "max_tokens", false]);
+  const ended = await think(asking({ claude: async () => ({ finalText: "I could not find enough.", sources: [], usage: null, stop: "end_turn" }) }).a, rig({}, () => assert.fail("no provider")).io);
+  assert.deepEqual([ended.body.message, (ended.body.brains as any[])[0].stop, "out" in (ended.body.brains as any[])[0]], ["The provider returned an incomplete assessment.", "end_turn", false]);
   const both = rig({ OPENAI_API_KEY: OPENAI, INDAI_SECOND_OPINION: "off" }, () => reply("no json here"));
   const failed = await think(asking(cut).a, both.io);
   assert.deepEqual([failed.status, failed.body.error], [502, "parse"]);

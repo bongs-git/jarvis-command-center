@@ -20,6 +20,8 @@ export type Step = {
   sources?: number;
   tokens?: number;
   error?: string;
+  stop?: string;   // on an incomplete reply from Claude: why the model stopped ("max_tokens" = cut off at the reply limit)
+  out?: number;    // and how many tokens it had written
 };
 type Settle = (usage: unknown) => Promise<void>;
 export type IO = {
@@ -304,7 +306,7 @@ export type Thinking = Question & {
   system: string;
   userText: string; // what Claude is asked, as before
   evidence: string; // the same without the trader's name, for the other brains
-  claude: (text: string, searches?: number) => Promise<{ finalText: string; sources: Source[]; usage: unknown }>;
+  claude: (text: string, searches?: number) => Promise<{ finalText: string; sources: Source[]; usage: unknown; stop?: string }>;
 };
 // A researched answer ("trade" verdict or "chat" reply) from whichever brains are switched on.
 export async function think(a: Thinking, io: IO = live): Promise<{ status: number; body: Record<string, unknown> }> {
@@ -319,7 +321,7 @@ export async function think(a: Thinking, io: IO = live): Promise<{ status: numbe
   }
   const stop: Stop = { off: false };
   const second = a.mode === "trade" && b.chatgpt && b.askSecond ? secondOpinion(io, b.chatgpt, a.evidence, found, stop) : null;
-  let parsed: any = null, own: Source[] = [], usage: unknown = null, down: unknown = null;
+  let parsed: any = null, own: Source[] = [], usage: unknown = null, down: unknown = null, cut = false;
   const t0 = Date.now();
   try {
     // With the research in hand Claude gets a small allowance to check a gap, not the full search budget.
@@ -327,15 +329,18 @@ export async function think(a: Thinking, io: IO = live): Promise<{ status: numbe
     parsed = extractJson(c.finalText);
     own = c.sources;
     usage = c.usage;
-    note({ step: { brain: "claude", role, model: a.model, ok: !!parsed, ms: Date.now() - t0, ...tokens(usage), ...(parsed ? {} : { error: "incomplete" }) } });
+    cut = !parsed && c.stop === "max_tokens";
+    const why = parsed ? {} : { error: "incomplete", ...(c.stop ? { stop: c.stop } : {}), ...(Number.isFinite((usage as any)?.output_tokens) ? { out: (usage as any).output_tokens as number } : {}) };
+    note({ step: { brain: "claude", role, model: a.model, ok: !!parsed, ms: Date.now() - t0, ...tokens(usage), ...why } });
   } catch (e) {
     down = e;
     note({ step: { brain: "claude", role, model: a.model, ok: false, ms: Date.now() - t0, error: e instanceof HttpError ? e.code : "failed" } });
   }
   const sources = merge(found?.sources ?? [], own);
-  // One log line per answer that involved more than Claude: who did what, how long it took, and any refusal.
+  // One log line per answer that involved more than Claude, or in which a brain failed: who did what, how long it
+  // took, and why it failed (never the words of the question or the answer).
   const report = () => {
-    if (steps.length > 1) io.log({ fn: "indai-brain", mode: a.mode, ms: Date.now() - started, brains: steps.map((s, i) => details[i] ? { ...s, detail: details[i] } : s) });
+    if (steps.length > 1 || steps.some((s) => !s.ok)) io.log({ fn: "indai-brain", mode: a.mode, ms: Date.now() - started, brains: steps.map((s, i) => details[i] ? { ...s, detail: details[i] } : s) });
   };
   const done = (status: number, body: Record<string, unknown>) => {
     report();
@@ -365,5 +370,5 @@ export async function think(a: Thinking, io: IO = live): Promise<{ status: numbe
     report();
     throw down;
   }
-  return done(502, { error: "parse", message: "The provider returned an incomplete assessment.", raw: "", sources });
+  return done(502, { error: "parse", message: cut ? "The answer was cut off before it was complete. Please ask again." : "The provider returned an incomplete assessment.", raw: "", sources });
 }
