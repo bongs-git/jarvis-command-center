@@ -18,7 +18,7 @@ Please agree and implement these additive profile contracts before calling cross
   other IDs/symbols, and return the canonical merged `value`. Whole-profile replacement loses concurrent
   device edits. Retain tombstones so a sleeping device cannot resurrect deleted work. Apply existing
   auth/owner scoping and input-size limits.
-- `tuning`: `{version:1,adj,labels,minAdd,stop,target,at,basis?}`. `adj`/`labels` are keyed by setup type;
+- `tuning`: `{version:1,adj,labels,minAdd,stop,target,at,basis?}`. `adj`/`labels` are keyed by time, kind, direction, symbol or warning group;
   reset is an empty adjustment map, `minAdd:0,stop:1,target:1`, with a new `at`. Select the larger `at`
   atomically and return canonical `value`. Keep these scoped to the same account and use them in the push
   scanner only after validation. A pending older profile must not overwrite a newer remote profile.
@@ -33,8 +33,10 @@ relay.brain({mode:'profile',op:'put',key:'tuning',value:{version:1,adj:{},labels
 account authorization, exact contract identifier, quantity, limit/max-loss fields, preview/confirmation and
 idempotency/error behavior before the confirm sheet is built.
 
-**Remaining acceptance:** TradingView's component remains loading in the remote preview; full-screen control
-works, but live rendering on iPhone/iPad/laptop is not certified. Owner-device checks for silent-ring voice and
+**TradingView:** the Web Component failed on cookie access in an opaque frame. The website now uses
+TradingView's vendor-hosted Advanced Chart in a cross-origin, credentialless sandboxed iframe. Candles,
+controls and the provider's delay label rendered in the desktop preview; full screen works. Actual
+iPhone/iPad rendering remains unverified. Owner-device checks for silent-ring voice and
 closed-app push remain open. Receipt timing uses `barT + 300000` because scanner `barT` is the start of a
 completed five-minute candle. A test push does not overwrite the latest market-alert receipt.
 
