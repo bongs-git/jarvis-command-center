@@ -27,3 +27,7 @@ enable_confirmations = true
 [functions.indai-push]
 verify_jwt = false
 entrypoint = "./indai-push/index.ts"
+
+[functions.indai-schwab]
+verify_jwt = false
+entrypoint = "./indai-schwab/index.ts"

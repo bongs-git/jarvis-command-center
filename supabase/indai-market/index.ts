@@ -6,6 +6,9 @@ import { licensedKey, minuteBars, optionsRaw, quotes } from "./licensed.ts";
 import { failure } from "../_shared/http.ts";
 import { db, rpc } from "../_shared/db.ts";
 import { feedGate, REFUSALS } from "./gate.ts";
+import { account, publicBearer } from "../_shared/auth.ts";
+import { schwabApp, schwabSession } from "../_shared/schwab.ts";
+import { SCHWAB, schwabChain, schwabDaily, schwabMinutes, schwabQuotes } from "./schwab.ts";
 import { BRIDGE, bridgeBars, bridgePrevClose, bridgeQuote, bridgeRows } from "./bridge.ts";
 
 const CORS = {
@@ -28,7 +31,7 @@ async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Prom
   return v;
 }
 function json(data: any, status = 200, maxAge = 30) {
-  const licensed=data.source==="Massive";
+  const licensed=data.source==="Massive" || data.source===SCHWAB;
   data={source:"CBOE delayed quotes (about 15 minutes)",delay:900,...data};
   return new Response(JSON.stringify(data), {
     status,
@@ -50,6 +53,12 @@ async function cboe(path: string) {
   if (!r.ok) throw new Error(`CBOE ${r.status} for ${path}`);
   await cboeGate.answered();
   return await r.json();
+}
+// Regular trading hours on a weekday, New York time (holidays are not known here).
+function sessionOpen(ms: number) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(ms).map((x) => [x.type, x.value]));
+  const mins = Number(p.hour) * 60 + Number(p.minute);
+  return p.weekday !== "Sat" && p.weekday !== "Sun" && mins >= 570 && mins < 960;
 }
 function todayET() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
@@ -218,6 +227,20 @@ async function news(sym: string) {
   return { symbol: sym, source: null, items: [] };
 }
 
+// The owner's Schwab sign-in for this request, or null. Schwab's data is his alone: it is used only when the request
+// carries his passcode or his own sign-in. Without the app's keys nothing here runs, and a wrong passcode simply
+// gets the public answer.
+const schwab = schwabSession({ app: schwabApp() });
+async function ownerSchwab(req: Request): Promise<string | null> {
+  if (!schwabApp()) return null;
+  const bearer = req.headers.get("authorization")?.replace(/^Bearer /i, "");
+  if (!req.headers.has("x-indai-pass") && (!bearer || publicBearer(bearer))) return null;
+  try {
+    const user = await account(req);
+    const [owner] = await db("indai_owner", { select: "user_id", limit: "1" });
+    return owner?.user_id === user ? await schwab.token() : null;
+  } catch { return null; }
+}
 serve("indai-market",async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const url = new URL(req.url);
@@ -225,6 +248,44 @@ serve("indai-market",async (req) => {
   markMode(req,kind);
   if (req.method!=="GET") return json({error:"method",message:"Use GET."},405,0);
   const many = (url.searchParams.get("symbols") ?? "").toUpperCase().split(",").map((x) => x.trim()).filter((x) => SYM.test(x)).slice(0, 16);
+  if (["quote","snapshot","bars","chain","daily"].includes(kind)) {
+    const token = await ownerSchwab(req);
+    if (token) {
+      const symbol=(url.searchParams.get("symbol")??"").toUpperCase();
+      const symbols=kind==="snapshot" || kind==="bars" || kind==="daily" ? many : SYM.test(symbol) ? [symbol] : [];
+      if (symbols.length) try {
+        if (kind==="daily") {
+          const want = Number(url.searchParams.get("days"));
+          const days = Number.isFinite(want) && want >= 1 ? Math.min(6000, Math.floor(want)) : 260;
+          const rows = await Promise.all(symbols.map(async (t) => [t, await cached("schwab:d:" + t + ":" + days, 3_600_000, () => schwabDaily(t, days, token)).catch((e) => ({ error: String((e as Error).message) }))]));
+          if (rows.some(([, v]) => Array.isArray(v))) return json({ daily: Object.fromEntries(rows), source: SCHWAB, delay: 0, delayed: false }, 200, 0);
+          throw new Error("no daily candles");
+        }
+        const q = await cached("schwab:q:" + symbols.join(","), 2000, () => schwabQuotes(symbols, token));
+        // deno-lint-ignore no-explicit-any
+        const good = q.filter((x: any) => x.ok) as any[];
+        if (!good.length) throw new Error("no quotes");
+        const live = good.every((x) => x.delay === 0), meta = { source: SCHWAB, delay: live ? 0 : 900, delayed: !live };
+        if (kind==="snapshot") return json({ quotes: q, ...meta });
+        if (kind==="quote") return json({ ...good[0], ...meta });
+        if (kind==="bars") {
+          // The bridge already has the minute candles of the tickers on the owner's TradingView alert; Schwab fills in the rest.
+          const rows = await Promise.all(good.map(async (item) => {
+            try {
+              const b = await bridge(item.symbol), stored = b && bridgeBars(b.rows);
+              if (stored && (Date.now() - Date.parse(stored.timestamp) < 600_000 || !sessionOpen(Date.now()))) return [item.symbol, stored];
+            } catch { /* ask Schwab */ }
+            return [item.symbol, await cached("schwab:b:" + item.symbol, 15_000, () => schwabMinutes(item.symbol, token, item.delay === 0)).catch((e) => ({ error: String((e as Error).message) }))];
+          }));
+          return json({ bars: Object.fromEntries(rows), note: "1-minute bars, minutes after midnight New York time: [mins, open, high, low, close, volume, callVolume, putVolume]", ...meta });
+        }
+        const exp = url.searchParams.get("expiry"), wantExp = exp && /^\d{4}-\d{2}-\d{2}$/.test(exp) ? exp : null;
+        const raw = await cached("schwab:options:" + symbol, 10_000, () => schwabChain(symbol, token, good[0], wantExp));
+        const range = Math.min(0.25, Math.max(0.01, Number(url.searchParams.get("range") ?? 0.06) || 0.06));
+        return json({ ...analyse(symbol, raw, wantExp, range), ...meta, iv30Available: false });
+      } catch { /* Whatever Schwab could not give comes from the public sources below. */ }
+    }
+  }
   if (["quote","snapshot","bars","chain"].includes(kind)) {
     let key: string | null;
     try { key=await licensedKey(req); } catch(e) { return failure(e); }
