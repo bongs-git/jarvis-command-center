@@ -2,9 +2,9 @@
 
 ## Website handback to Ikpa — November 20, 2026
 
-Website changes are under review in [website PR #1](https://github.com/bongs-git/bongs-git.github.io/pull/1).
+Website [PR #1](https://github.com/bongs-git/bongs-git.github.io/pull/1) merged at `6011e72` on November 20.
 Price freshness labels, missing-option explanations, drawing tools/undo, history states and push receipt timing
-are implemented; browser regression checks are running before release. Quest application files and backend
+passed all three [CI groups](https://github.com/bongs-git/bongs-git.github.io/actions/runs/44714347979), including 360/820/1440px checks. Backend and vendor responses in regression tests are fixtures; live TradingView rendering was checked separately. Quest application files and backend
 code are unchanged by this work.
 
 **Backend requests:** `supabase/indai-brain/profile.ts` still permits only speech, ears, plan and watchlist.
