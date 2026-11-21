@@ -86,7 +86,8 @@ already in the other, and so is the hosted-voice switch (`indai.voice.hosted`).
    };
    ```
    Your watchlist and chart header already show `q.ext`. Finnhub ticks take the same path, which fixes the same problem
-   for a Finnhub key.
+   for a Finnhub key. (The website's `ext.js` had its wrapper on the feed instance and lost it at every restart: the
+   price stopped moving until a reload. It moved to the prototype on November 21.)
 4. In Settings, one line from `app.schwabLive`: `live` → "Live prices: Schwab stream"; `elsewhere` → "Schwab stream is
    open on another device, trying again in 5 minutes"; `off` or `refused` → its `detail`; and if it says Schwab is not
    connected, point him at https://bongs-git.github.io/indai/schwab.html. The passcode field's label should say it also
@@ -125,7 +126,8 @@ From outside: wrap `relay.snapshot` and keep, per ticker, `{ source: q.source ||
 answer.delay ?? 900, at }` (the website's `data-status.js`, from line 27, does exactly this). Then let the main
 ticker's entry decide: `delay === 0` and under two minutes old means live, with its source: "Live · Schwab", "Live ·
 TradingView". Use that in the four places, and wrap `app.indai.liveContext` so `dataNote` says "Prices are live
-(Schwab)." when they are. The greeting can simply say "Market data is connecting."
+(Schwab)." when they are. The greeting can simply say "Market data is connecting." The website made the same fix on
+November 21: its `liveContext` wrapper sits right after `app.indai = new Indai(app)` in `indai/js/app.js`.
 
 Done when: a stand-in snapshot with `source:"Schwab", delay:0` gives the badge "Live · Schwab", no delayed note, an alert
 without the heads-up, and a `liveContext().dataNote` that says live; with `delay:900` everything reads as it does today.
