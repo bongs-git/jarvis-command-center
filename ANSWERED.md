@@ -16,6 +16,8 @@ atlas's numbers. Those stay in the private backend tables or the owner's chat me
 
 ## Index
 
+- 2026-11-21 · Which headset requests carry the owner's passcode?
+- 2026-11-21 · Which headset (Quest app) emulator test failures are timing, not bugs?
 - 2026-11-21 · Talk answers cut off: what limit does talk need?
 - 2026-11-20 · Where do option chains, GEX and daily history come from now that CBOE blocks us?
 - 2026-11-20 · Which paid or free options-data providers were compared, and what do they cost?
@@ -29,6 +31,22 @@ atlas's numbers. Those stay in the private backend tables or the owner's chat me
 - 2026-11-20 · Why did the daily chart hammer the backend when CBOE refused?
 
 ## Entries
+
+### 2026-11-21 · Which headset requests carry the owner's passcode?
+- Answer: on the Quest app (`/jarvis-command-center/`), `x-indai-pass` goes to `indai-market` (his Schwab prices,
+  added by `js/owner-feed.js`), `indai-schwab` (the stream's sign-in details), `indai-voice` (her hosted voice,
+  `js/cloud-voice.js`) and `indai-brain` (research, as before). Nothing else, and none of them without a saved
+  passcode; in demo mode there is no `indai-schwab` or `indai-voice` request. Checked with stand-ins in
+  `tests/schwab-headset.js` and `tests/voice-headset.js` (Papilo, PRs #23 to #25).
+- Stale when: `owner-feed.js` or `cloud-voice.js` change on the website and are copied again.
+
+### 2026-11-21 · Which headset (Quest app) emulator test failures are timing, not bugs?
+- Answer: the WebXR emulator (IWER) under SwiftShader draws only a few frames a second. A controller needs about a
+  second after it is aimed before a press lands on the right button, so a scene-tile click can miss with shorter
+  waits. Two presses can't come closer than about 650 ms, which is longer than the 500 ms double-pinch window, so
+  double-pinch (chart reset, a window up front) is tested in the 2D preview with the mouse instead, where it passes.
+  None of these are app bugs.
+- Stale when: the tests run on a GPU, or the double-pinch window changes (`js/panels.js`, `js/main.js`).
 
 ### 2026-11-21 · Talk answers cut off: what limit does talk need?
 - Answer: `claude-haiku-5-5` thinks before it answers and the thinking counts against `max_tokens`. At 700, a
