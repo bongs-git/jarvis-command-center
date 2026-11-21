@@ -16,6 +16,7 @@ atlas's numbers. Those stay in the private backend tables or the owner's chat me
 
 ## Index
 
+- 2026-11-21 · Can her hosted voice be faster or slower, or more expressive?
 - 2026-11-21 · Talk answers cut off: what limit does talk need?
 - 2026-11-20 · Where do option chains, GEX and daily history come from now that CBOE blocks us?
 - 2026-11-20 · Which paid or free options-data providers were compared, and what do they cost?
@@ -29,6 +30,17 @@ atlas's numbers. Those stay in the private backend tables or the owner's chat me
 - 2026-11-20 · Why did the daily chart hammer the backend when CBOE refused?
 
 ## Entries
+
+### 2026-11-21 · Can her hosted voice be faster or slower, or more expressive?
+- Answer: yes, from Settings on the website (and `indai-voice` `op:"tune"`), kept for every device. Speed 0.7 to
+  1.2. Eleven v4 and v4 Turbo have no speed (ElevenLabs' v4 page, November 21: "Style and Speed sliders are not
+  available in Eleven v4"), so any speed but 1.0 is spoken by `eleven_flash_v2_5`, a little less expressive. Feel is
+  stability: steady 0.75, expressive 0.3, natural sends none. Unknown until heard: whether v4 takes 0.75 and 0.3 (v3
+  took only 0, 0.5, 1); if not, she is asked again without them and Settings says so.
+- Where: `supabase/indai-voice/voice.ts`, migration `20261121155940_indai_voice_tune.sql`, OPERATIONS.md "Her
+  hosted voice"; website `indai/js/voice-tune.js` (website PR #5).
+- Stale when: ElevenLabs gives v4 a speed, or her model changes.
+- By: Ikpa, November 21.
 
 ### 2026-11-21 · Talk answers cut off: what limit does talk need?
 - Answer: `claude-haiku-5-5` thinks before it answers and the thinking counts against `max_tokens`. At 700, a
