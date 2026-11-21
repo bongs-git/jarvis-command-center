@@ -2,6 +2,7 @@
 import { Panel, C, F, S, text, rrect, fmtPrice, fmtPct, fmtMoney, colorFor, hexA } from './hud.js';
 import { ema, vwap, fmtClock, fmtDuration, fmtHM, marketStatus, chartSession, INTERVAL_LABEL, INTERVAL_MS } from './market.js';
 import { drawingsFor, addDrawing, removeDrawing, clearDrawings, saveDrawings, distToSegment } from './draw.js';
+import { brainsLine } from './brain-meta.js';
 import { LEADLAG } from './feeds.js';
 import { pnlGrid, positionSummary } from './options.js';
 import { STRATEGIES, PROFILES, buildPlan } from './signals.js';
@@ -706,8 +707,13 @@ export class IndaiPanel extends Panel {
     const group = [];
     for (let i = msgs.length - 1; i > lastYou; i--) { if (tail && tail.t - msgs[i].t > 8000) break; group.unshift(msgs[i]); }
     const lw = a.w - 30, LH = 29;
-    const colorOf = (m) => m.kind === 'alert' ? C.amber : m.kind === 'risk' ? C.down : m.kind === 'good' ? C.up : m.kind === 'you' ? C.gold : C.text;
+    const colorOf = (m) => m.kind === 'mark' ? C.violet : m.kind === 'alert' ? C.amber : m.kind === 'risk' ? C.down : m.kind === 'good' ? C.up : m.kind === 'you' ? C.gold : C.text;
     const glines = group.flatMap((m, gi) => wrap(ctx, m.text, lw, 22, F.hud, 500).map((ln, k) => ({ ln, m, gap: gi > 0 && k === 0 })));
+    const tk = this.app.brainMeta && this.app.brainMeta.talk;
+    if (glines.length && tk && tk.about === 'idea' && tk.at >= group[0].t - 1500 && tk.at <= group[group.length - 1].t + 1500) {
+      const an2 = this.app.analysis;
+      glines.unshift({ ln: `Thinking it through${an2 ? ' · ' + ideaLabel(an2.idea) : ''}`, m: { kind: 'mark' }, gap: false });
+    }
     const gh = glines.reduce((h, l) => h + LH + (l.gap ? 8 : 0), 0) + (glines.length ? 18 : 0);
     const room = maxY - y;
     const key = tail ? tail.t + ':' + msgs.length : '';
@@ -768,6 +774,13 @@ export class AnalysisPanel extends Panel {
     text(ctx, `${an.score.score}/100`, L.x + L.w - 26, y + 54, { size: 30, weight: 600, fam: F.mono, color: C.white, align: 'right' });
     text(ctx, an.final ? `research ${an.final.confidence ?? '—'}% confident` : an.pendingAI ? 'researching news…' : 'quant read', L.x + L.w - 26, y + 90, { size: 19, weight: 500, color: C.dim, align: 'right' });
     y += 140;
+    // who worked on it: research, verdict, second opinion (only when the server says; an older server shows nothing new)
+    const bm = app.brainMeta && app.brainMeta.trade, bl = an.final && bm && bm.at >= (an.at || 0) ? brainsLine(bm.brains, an.final) : null;
+    if (bl) {
+      if (bl.line) y += para(ctx, bl.line, L.x, y + 4, L.w, { size: 19, color: C.dim, maxLines: 3 }) + 2;
+      if (bl.trouble) y += para(ctx, bl.trouble, L.x, y + 4, L.w, { size: 18, color: C.faint, maxLines: 2 }) + 2;
+      y += 8;
+    }
     if (an.score.gate) { y += para(ctx, an.score.gate, L.x, y + 22, L.w, { size: 22, color: C.down, weight: 600 }) + 6; }
     const k = an.contract, qd = an.quant;
     const rowsL = [
