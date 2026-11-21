@@ -91,6 +91,12 @@ export function initUI(app) {
     vparts.push(vs.sttReady ? `<span class="ok">Listening ready (${esc(vs.sttModel || 'on-device')})</span>` : vs.sttLoad != null ? `<span class="warn">Listening model ${vs.sttLoad}%</span>` : app.indai.voice.SR && !/OculusBrowser|Quest/i.test(navigator.userAgent) ? 'Listening uses the browser recognizer here' : 'Listening model downloads the first time you talk (about 40 MB)');
     if (vs.error) vparts.push(`<span class="bad">${esc(vs.error)}</span>`);
     $('voice-status').innerHTML = vparts.join('\n');
+    // her hosted voice (js/cloud-voice.js)
+    const cv = app.cloudVoice, pick = '<a href="https://bongs-git.github.io/indai/voice.html" target="_blank" rel="noopener">Choose her voice</a>';
+    $('cloud-voice-status').innerHTML = cv && cv.state === 'on'
+      ? `<span class="ok">Hosted voice${cv.voice && cv.voice.name ? ' (' + esc(cv.voice.name) + ')' : ''}</span>: from the server, nothing to download${cv.downUntil > Date.now() ? `. <span class="warn">Resting for a few minutes:</span> ${esc((cv.note || 'it could not be reached').replace(/\.$/, ''))}` : ''}. ${pick}`
+      : cv && cv.state === 'trouble' ? `<span class="warn">Hosted voice is set up but not working:</span> ${esc((cv.note || 'ElevenLabs did not answer').replace(/\.$/, ''))}. ${pick}`
+      : `Hosted voice: not set up${s.researchPass ? '' : ' (needs your INDAI passcode, Research section)'}. ${pick}`;
     const tv = app.tvAlerts || [];
     const br = app.feed.status.tvAt;
     const bridgeLine = br ? (app.feed.bridgeLive ? `<span class="ok">Bridge live</span>: last candle ${new Date(br).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : `<span class="warn">Bridge quiet</span> since ${new Date(br).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`) : 'Bridge: not connected yet (add the INDAI Bridge indicator and its alert).';

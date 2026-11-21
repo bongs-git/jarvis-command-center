@@ -2,6 +2,7 @@ import './owner-hours.js';
 import { initOwnerFeed } from './owner-feed.js';
 import { initDataStatus } from './data-status.js';
 import { initPriceStatus } from './price-status.js';
+import { initCloudVoice } from './cloud-voice.js';
 import * as THREE from 'three';
 import { loadSettings, saveSettings, loadDay, saveDay, freshDay, todayET, loadLayout, saveLayout, clearLayout, parseLevels } from './store.js';
 import { MarketFeed, LEADLAG } from './feeds.js';
@@ -1550,6 +1551,9 @@ async function boot() {
   applyScene();
   app.recenter();
   fit2D();
+  // Her hosted voice (ElevenLabs, js/cloud-voice.js copied from the website): when it is set up she speaks from the
+  // server and the speaking model is not downloaded here. Listening stays on the headset.
+  initCloudVoice(app);
   app.feed.start();
   loadMorningGex();
   setInterval(loadMorningGex, 10 * 60e3);
