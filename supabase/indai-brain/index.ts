@@ -175,7 +175,7 @@ async function answer(req: Request): Promise<Response> {
     const asked = clean(body?.question).slice(0, 600);
     // A question about the idea they last asked about gets the stronger model, with the idea, its numbers and her verdict.
     const deep = aboutIdea(asked, idea);
-    const talkModel = deep ? MODELS.fast : MODELS.talk, talkTokens = deep ? 1500 : 700;
+    const talkModel = deep ? MODELS.fast : MODELS.talk, talkTokens = deep ? 1500 : 1600; // thinking counts against max_tokens: 700 returned empty answers (ANSWERED.md, November 21)
     // With no app on screen (nothing came as context) she is given what the server can see for itself.
     const shown = body?.context && typeof body.context === "object" && Object.keys(body.context).length ? body.context : talkUser ? await serverContext(req, asked, idea) : {};
     const history = prior.slice(-16)
