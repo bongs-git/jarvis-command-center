@@ -116,7 +116,9 @@ atlas's numbers. Those stay in the private backend tables or the owner's chat me
 ### 2026-11-20 · Which website test failures are the time of day, not a bug?
 - Answer: in roughly the first 15 minutes after the open the demo data has one day, and these fail on `main` too:
   chart-test "zooming out shows more than one session", flow "practice alert", and capture checks that want several
-  candles. final-touches "1440px failed option chains" is flaky on GitHub's runners and passes on a re-run
+  candles. Until website PR #5 (November 21), extra.js "morning check-in starts on the first tap" also failed every
+  weekend and holiday morning: it checked only the hour, while the app starts a check-in on trading days only; it now
+  reads `isTradingDay` from `js/market.js`. final-touches "1440px failed option chains" is flaky on GitHub's runners and passes on a re-run
   (`gh api -X POST repos/bongs-git/bongs-git.github.io/actions/runs/<id>/rerun-failed-jobs`). ext-test sets its own
   clock. Do not chase these: re-run after 10:00 ET, or compare with `main` once.
 - Where: website `indai/tests/`, `.github/workflows/indai-website-tests.yml`.
