@@ -16,7 +16,7 @@ atlas's numbers. Those stay in the private backend tables or the owner's chat me
 
 ## Index
 
-- 2026-11-21 · Talk answers cut off: what limit does talk need? (main is back at 700)
+- 2026-11-21 · Talk answers cut off: what limit does talk need?
 - 2026-11-20 · Where do option chains, GEX and daily history come from now that CBOE blocks us?
 - 2026-11-20 · Which paid or free options-data providers were compared, and what do they cost?
 - 2026-11-20 · Why did INDAI's written read come back empty?
@@ -30,13 +30,14 @@ atlas's numbers. Those stay in the private backend tables or the owner's chat me
 
 ## Entries
 
-### 2026-11-21 · Talk answers cut off: what limit does talk need? (main is back at 700)
+### 2026-11-21 · Talk answers cut off: what limit does talk need?
 - Answer: `claude-haiku-5-5` thinks before it answers and the thinking counts against `max_tokens`. At 700, a
   question with a few KB of context used all 700 on thinking and returned an empty `spoken` (measured November 20:
   `output_tokens: 700`, empty answer). Talk needs about 1600; the spoken answer stays short because the prompt asks
   for 1 to 3 sentences. Version 12 ran at 1600. Commit f233647 ("think an idea through") set
-  `talkTokens = deep ? 1500 : 700`, so plain talk is at 700 again on `main`.
-- Where: `supabase/indai-brain/index.ts` (`talkTokens`); the fix pull request "indai-brain: talk limit back to 1600".
+  `talkTokens = deep ? 1500 : 700`; pull request #22 (November 21) set plain talk back to 1600 on `main`. It goes
+  live with the next `supabase functions deploy indai-brain` from `main`. Until then the deployed brain still has 700.
+- Where: `supabase/indai-brain/index.ts` (`talkTokens`), pull request #22.
 - Stale when: talk's model changes, or the limit is raised again.
 - By: Claude (website session), November 21.
 
