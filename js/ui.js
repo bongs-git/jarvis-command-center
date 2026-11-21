@@ -95,6 +95,20 @@ export function initUI(app) {
     const br = app.feed.status.tvAt;
     const bridgeLine = br ? (app.feed.bridgeLive ? `<span class="ok">Bridge live</span>: last candle ${new Date(br).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : `<span class="warn">Bridge quiet</span> since ${new Date(br).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`) : 'Bridge: not connected yet (add the INDAI Bridge indicator and its alert).';
     $('tv-status').innerHTML = bridgeLine + '\n' + (tv.length ? `<span class="ok">Connected</span>: ${tv.length} alert${tv.length === 1 ? '' : 's'} in the last two days. Latest: ${esc(tv[0].text.slice(0, 120))}` : 'Alerts: none received yet (optional).');
+    const sl = app.schwabLive, ps = app.priceStatus ? app.priceStatus() : null;
+    let sline = '';
+    if (!s.researchPass) sline = 'Schwab: save your INDAI passcode (Research section) to use your own live prices.';
+    else if (!sl) sline = 'Schwab: not used in demo mode.';
+    else if (sl.state === 'live') sline = `<span class="ok">Live prices: Schwab stream</span>${sl.ticks ? ` · ${sl.ticks.toLocaleString()} trades so far` : ' · waiting for the first trade (quiet outside market hours)'}`;
+    else if (sl.state === 'elsewhere') sline = '<span class="warn">Schwab stream is open on another device</span>, trying again in 5 minutes.';
+    else if (sl.state === 'connecting' || (sl.state === 'off' && !sl.detail)) sline = 'Schwab stream: connecting…';
+    else {
+      const why = esc(sl.detail || 'not running');
+      const notConnected = /not connected|connect schwab|sign ?in|authori[sz]|expired|409|401/i.test(sl.detail || '');
+      sline = `<span class="warn">Schwab stream: ${why}</span>${notConnected ? ' <a href="https://bongs-git.github.io/indai/schwab.html" target="_blank" rel="noopener">Connect Schwab</a>' : ''}`;
+    }
+    if (ps) sline += `\nPrices now: ${esc(ps.text)}${ps.note ? ` · ${esc(ps.note)}` : ''}`;
+    $('schwab-status').innerHTML = sline;
     const b = app.indai.brain;
     $('research-status').innerHTML = !b.checked ? 'Checking…' : b.configured ? `<span class="ok">Research is on</span>${b.passcode ? ' (passcode required)' : ''}` : '<span class="warn">Research is off.</span> It turns on once the Anthropic API key is saved in the INDAI backend (see the setup note). Until then INDAI rates trades from the market data alone.';
   }

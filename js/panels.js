@@ -89,10 +89,13 @@ export class TopBar extends Panel {
     dot(ctx, W / 2 - sw / 2 - 16, 102, 6, stColor);
     text(ctx, sub, W / 2, 109, { size: 22, weight: 500, color: stColor, align: 'center', max: 470 });
     const st = app.feed.status;
-    const bridge = app.feed.bridgeLive;
-    const [badge, bcol] = st.mode === 'demo' ? ['Demo data', C.amber] : bridge ? ['Live · TradingView', C.up] : st.mode === 'live' ? ['Live', C.up] : ['Delayed ~15 min', C.sky];
-    pill(ctx, W - 34, 26, badge, bcol, { size: 22, align: 'right' });
-    const src = st.mode === 'demo' ? 'Simulated prices' : bridge ? 'TradingView bridge · options from CBOE' : st.mode === 'live' ? `Finnhub ${st.finnhubWs === 'live' ? 'streaming' : st.finnhubWs} · CBOE` : `CBOE ${st.cboe === 'ok' ? 'connected' : st.cboe}`;
+    const ps = app.priceStatus();
+    const bcol = ps.kind === 'demo' ? C.amber : ps.kind === 'live' ? C.up : C.sky;
+    pill(ctx, W - 34, 26, ps.text, bcol, { size: 22, align: 'right' });
+    const sl = app.schwabLive;
+    const src = ps.kind === 'demo' ? 'Simulated prices' : sl && sl.state === 'live' ? `Schwab stream${sl.ticks ? ` · ${sl.ticks.toLocaleString()} trades` : ''}`
+      : ps.kind === 'live' || ps.kind === 'idle' ? (ps.source === 'TradingView' ? 'TradingView bridge' : ps.source === 'Finnhub' ? `Finnhub ${st.finnhubWs === 'live' ? 'streaming' : st.finnhubWs}` : `${ps.source}${ps.kind === 'idle' ? ' · last update' : ''}`)
+      : `CBOE ${st.cboe === 'ok' ? 'connected' : st.cboe}`;
     text(ctx, src, W - 34, 110, { size: 19, weight: 500, color: C.faint, align: 'right', max: 330 });
   }
 }
@@ -499,7 +502,7 @@ export class MainChart extends Panel {
     }
     if (!this.drawMode) {
       if (app.feed.status.mode === 'demo') text(ctx, 'Demo data, not real prices', a.x + a.w - 118, iy + 4, { size: 20, weight: 600, color: C.amber, align: 'right' });
-      else if (app.feed.status.mode === 'delayed' && !app.feed.bridgeLive) text(ctx, 'Delayed ~15 min', a.x + a.w - 118, iy + 4, { size: 19, weight: 500, color: C.faint, align: 'right' });
+      else if (app.priceStatus().kind === 'delayed') text(ctx, 'Delayed ~15 min', a.x + a.w - 118, iy + 4, { size: 19, weight: 500, color: C.faint, align: 'right' });
     }
   }
 }

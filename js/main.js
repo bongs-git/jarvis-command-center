@@ -1,3 +1,7 @@
+import './owner-hours.js';
+import { initOwnerFeed } from './owner-feed.js';
+import { initDataStatus } from './data-status.js';
+import { initPriceStatus } from './price-status.js';
 import * as THREE from 'three';
 import { loadSettings, saveSettings, loadDay, saveDay, freshDay, todayET, loadLayout, saveLayout, clearLayout, parseLevels } from './store.js';
 import { MarketFeed, LEADLAG } from './feeds.js';
@@ -48,7 +52,13 @@ const app = {
 };
 app.levels = parseLevels(app.settings.levelsText);
 app.feed = new MarketFeed(app.settings);
+// His own prices: with the passcode saved, price requests carry it and Schwab's live stream feeds the chart
+// (js/owner-feed.js and js/schwab-stream.js, copied unchanged from the website; trades outside the session go to the
+// extended-hours price, js/owner-hours.js). js/data-status.js keeps each ticker's source and delay.
+initOwnerFeed(app);
+initDataStatus(app);
 app.indai = new Indai(app);
+initPriceStatus(app);
 app.saveSettings = () => saveSettings(app.settings);
 const say = (...a) => app.indai.say(...a);
 
@@ -482,7 +492,7 @@ function fireSignal(sig, plan, { practice = false } = {}) {
   app.signals.unshift(sig); if (app.signals.length > 30) app.signals.length = 30;
   if (!practice) { app.day.signals = (app.day.signals || 0) + 1; saveDay(app.day); }
   const k = sig.contract, side = sig.type === 'C' ? 'call' : 'put';
-  const delayed = practice ? '' : app.feed.status.mode === 'demo' ? ' Demo data.' : app.feed.status.mode === 'delayed' && !app.feed.bridgeLive ? ' Heads up, this is on delayed data.' : '';
+  const delayed = practice ? '' : app.feed.status.mode === 'demo' ? ' Demo data.' : app.priceStatus().kind === 'delayed' ? ' Heads up, this is on delayed data.' : '';
   const grade = sig.score >= 80 ? 'A-plus' : sig.score >= 70 ? 'strong' : 'decent';
   const text = `${practice ? `Practice alert, replayed from the ${new Date(sig.barT + 300e3).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} candle. ` : ''}${sig.sym} ${side} setup, ${grade}, score ${sig.score}: ${sig.title}. Idea: the ${k.strike} ${side} ${k.expiry === nextExpiries().today ? 'for today' : 'for ' + new Date(k.expiry + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })}, about ${k.premium.toFixed(2)}, ${k.qty} contract${k.qty > 1 ? 's' : ''}, risking about ${fmtMoney(k.risk)}${k.overBudget ? `, which is over your ${fmtMoney(plan.riskPerTrade)} per-trade risk, so size down or skip` : ''}. Out if ${sig.sym} ${sig.dir > 0 ? 'loses' : 'gets back above'} ${fmtPrice(sig.stop)}; target ${fmtPrice(sig.target)}.${sig.against.length ? ' Watch: ' + sig.against.slice(0, 2).join(', ') + '.' : ''}${delayed}`;
   say(text, sig.dir > 0 ? 'good' : 'risk');
@@ -1554,7 +1564,7 @@ async function boot() {
   const st = app.feed.status;
   say(st.mode === 'demo'
     ? `Hi ${app.settings.name}, I'm INDAI. Running on demo data right now.`
-    : `Hi ${app.settings.name}, I'm INDAI. Market data is connecting (delayed about 15 minutes).`, 'info', { speak: false });
+    : `Hi ${app.settings.name}, I'm INDAI. Market data is connecting.`, 'info', { speak: false });
   say('Ask me about a trade, like “QQQ calls expiring today, 665 strike”. Tap Talk, hold A or X, or pinch the orb.', 'info', { speak: false });
   initUI(app);
   document.fonts && document.fonts.addEventListener && document.fonts.addEventListener('loadingdone', () => app.markDirty('all'));
