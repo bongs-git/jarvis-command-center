@@ -1,6 +1,6 @@
 // Offline shell for the installed app. Market data, fonts and voice models always go to the network
 // (the voice models are cached by the browser's own model cache after the first download).
-const CACHE = 'indai-v12';
+const CACHE = 'indai-v13';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './vendor/three.module.js', './vendor/three.core.js',
   './js/main.js', './js/ui.js', './js/hud.js', './js/panels.js', './js/feeds.js', './js/market.js', './js/store.js',
   './js/indai.js', './js/voice.js', './js/relay.js', './js/options.js', './js/analysis.js', './js/gestures.js', './js/speech.js', './js/draw.js', './js/schwab-stream.js', './js/owner-feed.js', './js/owner-hours.js', './js/data-status.js', './js/price-status.js', './js/cloud-voice.js', './js/signals.js', './js/scenes.js',
