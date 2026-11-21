@@ -16,6 +16,7 @@ atlas's numbers. Those stay in the private backend tables or the owner's chat me
 
 ## Index
 
+- 2026-11-21 · How do ChatGPT and Perplexity follow the same credit-saving skills?
 - 2026-11-21 · Which headset requests carry the owner's passcode?
 - 2026-11-21 · Which headset (Quest app) emulator test failures are timing, not bugs?
 - 2026-11-21 · Talk answers cut off: what limit does talk need?
@@ -31,6 +32,15 @@ atlas's numbers. Those stay in the private backend tables or the owner's chat me
 - 2026-11-20 · Why did the daily chart hammer the backend when CBOE refused?
 
 ## Entries
+
+### 2026-11-21 · How do ChatGPT and Perplexity follow the same credit-saving skills?
+- Answer: they cannot load Claude skills. `handoff/PARTNER-PLAYBOOK.md` is the same playbook in plain words: check
+  this ledger first, reuse answers that are not stale, re-check only time-sensitive parts, end with an "ANSWERED
+  entry" that a Claude bot logs. Its last section has short instructions to paste into the ChatGPT INDAI project and
+  the Perplexity INDAI space. Both partner briefs now point to it.
+- Where: `handoff/PARTNER-PLAYBOOK.md`, `handoff/PERPLEXITY-BRIEF.md`, `handoff/CHATGPT-FRONTEND-HANDOFF.md`.
+- Stale when: a partner gets repository access (then it adds entries itself), or the skills change.
+- By: Claude (website session).
 
 ### 2026-11-21 · Which headset requests carry the owner's passcode?
 - Answer: on the Quest app (`/jarvis-command-center/`), `x-indai-pass` goes to `indai-market` (his Schwab prices,
