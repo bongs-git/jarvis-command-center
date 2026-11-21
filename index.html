@@ -143,9 +143,10 @@
     <input id="s-symbols" type="text" placeholder="SPY, QQQ, IWM, TSLA, AMZN, MSFT">
 
     <h3>Market data</h3>
-    <p class="note">By default INDAI uses free CBOE data, delayed about 15 minutes: quotes, intraday candles and full option chains with Greeks. No keys needed. Add a free <a href="https://finnhub.io/register" target="_blank" rel="noopener">Finnhub</a> key for real-time stock prices on top.</p>
+    <p class="note">With your INDAI passcode saved (Research section) and Schwab connected, prices come live from your own Schwab account, tick by tick. Otherwise INDAI uses free CBOE data, delayed about 15 minutes: quotes, intraday candles and full option chains with Greeks. A free <a href="https://finnhub.io/register" target="_blank" rel="noopener">Finnhub</a> key adds real-time stock prices on top.</p>
     <label for="s-mode">Data</label>
     <select id="s-mode"><option value="auto">Real market data (CBOE delayed, plus Finnhub if set)</option><option value="demo">Demo data (simulated)</option></select>
+    <div id="schwab-status" class="status"></div>
     <label for="s-fh">Finnhub API key (optional)</label>
     <div class="row"><input id="s-fh" type="password" spellcheck="false"><button type="button" id="s-fh-show" class="small">Show</button></div>
 
@@ -195,7 +196,7 @@
       <div><label for="s-depth">Research depth</label><select id="s-depth"><option value="fast">Fast (about 20 seconds)</option><option value="deep">Deep (slower, more thorough)</option></select></div>
       <div><label for="s-rate">Risk-free rate %</label><input id="s-rate" type="number" min="0" max="15" step="0.1"></div>
     </div>
-    <label for="s-pass">Research passcode (only if you set one)</label>
+    <label for="s-pass">INDAI passcode: research, your Schwab prices and her hosted voice</label>
     <input id="s-pass" type="password" spellcheck="false">
 
     <h3>TradingView</h3>
