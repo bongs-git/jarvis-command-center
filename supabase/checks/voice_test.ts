@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { HttpError } from "../_shared/http.ts";
-import { API, forgetModelTrouble, listVoices, pickVoice, refused, sayable, speak, voiceConfig, voiceId, voicesFrom } from "../indai-voice/voice.ts";
+import { API, feelOf, forgetModelTrouble, listVoices, paced, pickVoice, refused, sayable, speak, speedOf, takesSpeed, tuneOf, voiceConfig, voiceId, voiceSettings, voicesFrom } from "../indai-voice/voice.ts";
 
 // INDAI's hosted voice (supabase/indai-voice/voice.ts): what is sent to ElevenLabs and how its answers are read. No network.
 const cfg = { key: "xi-KEY", model: "eleven_v4_turbo", dailyChars: 60000, voice: null };
@@ -83,4 +83,49 @@ Deno.test("speaking: the request ElevenLabs gets, and a refused model falls back
   await assert.rejects(() => speak(cfg, VOICE, "x", {}, { fetch: () => Promise.reject(new Error("network")) }), (e: unknown) => e instanceof HttpError && e.code === "voice" && e.status === 502);
   assert.equal(refused(400, { detail: { status: "max_character_limit_exceeded", message: "too long" } }).code, "voice");
   assert.ok(refused(401, { detail: { message: "long ".repeat(400) } }).message.length < 260, "a refusal's words are cut short");
+});
+
+Deno.test("her speed and feel: what is taken, and what ElevenLabs is sent for each model", () => {
+  assert.deepEqual([0.7, 1.2, 1, 0.95, "1.1", 0.93, 0.6999999999, 1.2000000001].map(speedOf), [0.7, 1.2, 1, 0.95, 1.1, 0.95, 0.7, 1.2]);
+  for (const no of [0.65, 1.25, 2, 0, -1, "", " ", "fast", null, undefined, NaN, Infinity, [1], {}]) assert.equal(speedOf(no), null, String(no));
+  assert.deepEqual(["steady", "natural", "expressive", "calm", "", null, 1].map(feelOf), ["steady", "natural", "expressive", null, null, null, null]);
+  assert.deepEqual([tuneOf(null), tuneOf({ speed: "1.10", feel: "steady" }), tuneOf({ speed: 9, feel: "loud" })], [{ speed: 1, feel: "natural" }, { speed: 1.1, feel: "steady" }, { speed: 1, feel: "natural" }]);
+  assert.deepEqual([paced({ speed: 1, feel: "steady" }), paced({ speed: 1.05, feel: "natural" }), paced(null)], [false, true, false]);
+  assert.deepEqual(["eleven_v4_turbo", "eleven_v4", "eleven_v3", "eleven_flash_v2_5", "eleven_multilingual_v2", "eleven_turbo_v2_5"].map(takesSpeed), [false, false, false, true, true, true]);
+  assert.equal(voiceSettings("eleven_v4_turbo", { speed: 1, feel: "natural" }), null, "the voice as it was made: nothing sent");
+  assert.equal(voiceSettings("eleven_v4_turbo", null), null);
+  assert.deepEqual(voiceSettings("eleven_v4_turbo", { speed: 1, feel: "steady" }), { stability: 0.75 });
+  assert.deepEqual(voiceSettings("eleven_v4_turbo", { speed: 1.1, feel: "expressive" }), { stability: 0.3 }, "v4 is never sent a speed");
+  assert.deepEqual(voiceSettings("eleven_flash_v2_5", { speed: 0.9, feel: "natural" }), { speed: 0.9 });
+  assert.deepEqual(voiceSettings("eleven_flash_v2_5", { speed: 1.15, feel: "steady" }), { stability: 0.75, speed: 1.15 });
+});
+
+Deno.test("speaking with her speed and feel: v4 for her own pace, Flash for another, and a refused setting is let go once", async () => {
+  forgetModelTrouble();
+  const sent: any[] = [];
+  const io = (answer: (body: any) => Response) => ({ now: () => 5_000_000, fetch: (_url: string, init: RequestInit) => { const body = JSON.parse(String(init.body)); sent.push(body); return Promise.resolve(answer(body)); } });
+  const audio = () => new Response(new Uint8Array([73, 68, 51]), { headers: { "content-type": "audio/mpeg" } });
+  let out = await speak(cfg, VOICE, "Hi.", { tune: { speed: 1, feel: "natural" } }, io(audio));
+  assert.deepEqual([out.model, out.settings, sent[0]], ["eleven_v4_turbo", "none", { text: "Hi.", model_id: "eleven_v4_turbo" }], "unchanged from before speed and feel existed");
+  sent.length = 0; out = await speak(cfg, VOICE, "Hi.", { tune: { speed: 1, feel: "expressive" } }, io(audio));
+  assert.deepEqual([out.model, out.settings, sent[0].voice_settings], ["eleven_v4_turbo", "applied", { stability: 0.3 }]);
+  sent.length = 0; out = await speak(cfg, VOICE, "Hi.", { tune: { speed: 1.1, feel: "steady" } }, io(audio));
+  assert.deepEqual([out.model, out.settings, sent[0].model_id, sent[0].voice_settings], ["eleven_flash_v2_5", "applied", "eleven_flash_v2_5", { stability: 0.75, speed: 1.1 }]);
+  sent.length = 0; out = await speak({ ...cfg, model: "eleven_multilingual_v2" }, VOICE, "Hi.", { tune: { speed: 0.8, feel: "natural" } }, io(audio));
+  assert.deepEqual([out.model, sent[0].voice_settings], ["eleven_multilingual_v2", { speed: 0.8 }], "a model with a speed keeps it");
+  // ElevenLabs refuses the settings: asked once more without them, and said
+  const noSettings = (body: any) => body.voice_settings ? Response.json({ detail: [{ loc: ["body", "voice_settings", "stability"], msg: "Input should be 0, 0.5 or 1", type: "value_error" }] }, { status: 422 }) : audio();
+  sent.length = 0; out = await speak(cfg, VOICE, "Hi.", { tune: { speed: 1, feel: "steady" } }, io(noSettings));
+  assert.deepEqual([out.model, out.settings, sent.map((b) => !!b.voice_settings)], ["eleven_v4_turbo", "dropped", [true, false]]);
+  assert.equal(refused(422, { detail: [{ loc: ["body", "voice_settings"], msg: "bad voice_settings" }] }).code, "voice", "a settings refusal is not a missing voice");
+  // the model is refused and the settings travel to the fallback; at most three asks in all
+  forgetModelTrouble();
+  const picky = (body: any) => body.model_id === "eleven_v4_turbo" ? Response.json({ detail: { status: "model_not_found", message: "no such model" } }, { status: 400 }) : audio();
+  sent.length = 0; out = await speak(cfg, VOICE, "Hi.", { tune: { speed: 1, feel: "expressive" } }, io(picky));
+  assert.deepEqual([out.model, out.settings, sent.map((b) => [b.model_id, b.voice_settings?.stability ?? null])], ["eleven_flash_v2_5", "applied", [["eleven_v4_turbo", 0.3], ["eleven_flash_v2_5", 0.3]]]);
+  forgetModelTrouble();
+  const never = () => Response.json({ detail: { status: "invalid_voice_settings", message: "voice_settings speed model mismatch" } }, { status: 400 });
+  sent.length = 0; await assert.rejects(() => speak(cfg, VOICE, "Hi.", { tune: { speed: 1, feel: "steady" } }, io(never)), (e: unknown) => e instanceof HttpError && e.code === "voice");
+  assert.ok(sent.length <= 3, "no loop: " + sent.length);
+  forgetModelTrouble();
 });

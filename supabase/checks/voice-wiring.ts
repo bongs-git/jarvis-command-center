@@ -23,7 +23,7 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
   if (url.pathname === "/rest/v1/rpc/indai_take_request") return Response.json(true);
   if (url.pathname === "/rest/v1/rpc/indai_voice_take") { takes.push(body); if (limitHit) return Response.json(false); taken += body.p_chars; return Response.json(true); }
   if (url.pathname === "/rest/v1/indai_voice") {
-    if (method === "POST") { assert.match(url.search, /on_conflict=id/); row = body; return new Response("", { status: 201 }); }
+    if (method === "POST") { assert.match(url.search, /on_conflict=id/); row = { speed: 1, feel: "natural", ...row, ...body }; return new Response("", { status: 201 }); }   // merge-duplicates writes only the fields sent
     return Response.json(row ? [row] : []);
   }
   throw new Error("unexpected outside call: " + method + " " + url);
@@ -39,7 +39,7 @@ const post = async (body: unknown, headers: Record<string, string> = pass, metho
   const r = await real("http://127.0.0.1:8000/", { method, headers: { Authorization: "Bearer public-key", ...headers, "content-type": "application/json" }, body: method === "POST" ? JSON.stringify(body) : undefined });
   const type = r.headers.get("content-type") ?? "", bytes = new Uint8Array(await r.arrayBuffer()), text = type.includes("json") ? new TextDecoder().decode(bytes) : "";
   assert.ok(!/xi-SECRET/.test(text), "the key is never in an answer");
-  return { status: r.status, type, bytes, j: text ? JSON.parse(text) : null, model: r.headers.get("x-indai-voice-model") };
+  return { status: r.status, type, bytes, j: text ? JSON.parse(text) : null, model: r.headers.get("x-indai-voice-model"), settings: r.headers.get("x-indai-voice-settings") };
 };
 
 let r = await post({ op: "status" }, {}); assert.deepEqual([r.status, r.j.error], [401, "passcode"]);
@@ -58,13 +58,13 @@ eleven = { status: 401, detail: { status: "invalid_api_key", message: "Invalid A
 r = await post({ op: "status" }); assert.deepEqual([r.status, r.j.configured, r.j.ready, r.j.error, row], [200, true, false, "voice_key", null]);
 eleven = null;
 r = await post({ op: "status" });
-assert.deepEqual([r.status, r.j], [200, { configured: true, ready: true, voice: { id: SARAH, name: "Sarah", picked: "auto" }, model: "eleven_v4_turbo", daily_chars: 60000 }]);
+assert.deepEqual([r.status, r.j], [200, { configured: true, ready: true, voice: { id: SARAH, name: "Sarah", picked: "auto" }, tune: { speed: 1, feel: "natural" }, model: "eleven_v4_turbo", daily_chars: 60000 }]);
 assert.deepEqual([row.voice_id, row.picked, asked.map((a) => a.path), asked[0].key], [SARAH, "auto", ["/v2/voices?page_size=100&include_total_count=false"], "xi-SECRET"]);
 r = await post({ op: "status" }); assert.deepEqual([r.j.voice.name, asked.length], ["Sarah", 0]);
 ok("with the key in: a key ElevenLabs refuses is said in words; otherwise a first voice is picked for him and kept");
 
 r = await post({ op: "speak", text: "  Good morning,\n Bongs. ", previous: "Hello.", next: "x".repeat(400) });
-assert.deepEqual([r.status, r.type, [...r.bytes], r.model], [200, "audio/mpeg", [73, 68, 51, 4, 0, 0], "eleven_v4_turbo"]);
+assert.deepEqual([r.status, r.type, [...r.bytes], r.model, r.settings], [200, "audio/mpeg", [73, 68, 51, 4, 0, 0], "eleven_v4_turbo", "none"]);
 assert.deepEqual(asked, [{ method: "POST", path: "/v1/text-to-speech/" + SARAH + "/stream?output_format=mp3_44100_128", body: { text: "Good morning, Bongs.", model_id: "eleven_v4_turbo", previous_text: "Hello." }, key: "xi-SECRET" }]);
 assert.deepEqual(takes, [{ p_chars: 20, p_limit: 60000 }]);
 ok("speak: her words go to ElevenLabs in her voice and the audio comes straight back; the characters are counted");
@@ -83,5 +83,20 @@ r = await post({ op: "choose", voice_id: "ZZZZZZZZZZZZZZZZZZZZ" }); assert.deepE
 r = await post({ op: "choose", voice_id: MIRA }); assert.deepEqual([r.status, r.j.voice, row.voice_id, row.picked], [200, { id: MIRA, name: "Mira", picked: "owner" }, MIRA, "owner"]);
 r = await post({ op: "speak", text: "Now I sound like this." }); assert.ok(asked[0].path.includes(MIRA));
 ok("the picker: his voices, a trial that changes nothing, and a choice that only takes a voice from his account");
+const wait = () => new Promise((r) => setTimeout(r, 16_000));   // what an instance holds is read again after fifteen seconds
+for (const bad of [{}, { speed: 2 }, { speed: "fast" }, { feel: "loud" }, { speed: 1.1, feel: "calm" }]) { r = await post({ op: "tune", ...bad }); assert.deepEqual([r.status, r.j.error, row.speed, row.feel], [400, "bad_tune", 1, "natural"], JSON.stringify(bad)); }
+r = await post({ op: "tune", speed: 1.13, feel: "expressive" });
+assert.deepEqual([r.status, r.j.tune, r.j.model, r.j.voice.id, row.speed, row.feel, row.voice_id, row.picked], [200, { speed: 1.15, feel: "expressive" }, "eleven_flash_v2_5", MIRA, 1.15, "expressive", MIRA, "owner"]);
+r = await post({ op: "speak", text: "Faster now." });
+assert.deepEqual([r.status, r.model, r.settings, asked[0].body.model_id, asked[0].body.voice_settings, asked[0].path.includes(MIRA)], [200, "eleven_flash_v2_5", "applied", "eleven_flash_v2_5", { stability: 0.3, speed: 1.15 }, true]);
+r = await post({ op: "tune", feel: "steady" }); assert.deepEqual([r.j.tune, row.speed], [{ speed: 1.15, feel: "steady" }, 1.15], "one change keeps the other");
+r = await post({ op: "choose", voice_id: SARAH }); assert.deepEqual([r.j.voice.id, r.j.tune, row.speed, row.feel], [SARAH, { speed: 1.15, feel: "steady" }, 1.15, "steady"], "choosing a voice keeps her speed and feel");
+r = await post({ op: "speak", text: "Try this.", voice_id: MIRA, speed: 1, feel: "natural" });
+assert.deepEqual([r.status, r.model, r.settings, asked[0].body.voice_settings, asked[0].path.includes(MIRA), row.voice_id, row.speed], [200, "eleven_v4_turbo", "none", undefined, true, SARAH, 1.15], "a trial speed and feel change nothing kept");
+r = await post({ op: "speak", text: "x", speed: 3 }); assert.deepEqual([r.status, r.j.error, asked.length, takes.length], [400, "bad_tune", 0, 0]);
+// a change made elsewhere (another device, another instance) is heard within fifteen seconds
+row = { ...row, speed: 1, feel: "natural" }; await wait();
+r = await post({ op: "speak", text: "Back to normal." }); assert.deepEqual([r.model, asked[0].body.voice_settings], ["eleven_v4_turbo", undefined]);
+ok("tune: speed and feel kept for every device, sent to ElevenLabs on the model that takes them, tried without being kept");
 console.log("ALL VOICE WIRING CHECKS PASSED (characters counted: " + taken + ")");
 Deno.exit(0);

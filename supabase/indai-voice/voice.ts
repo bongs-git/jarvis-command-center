@@ -2,9 +2,12 @@
 // Nothing here knows about requests or the database: indai-voice/index.ts does that.
 // Checked against ElevenLabs' documentation on November 20, 2026:
 //   POST https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream?output_format=...   header xi-api-key
-//        body { text, model_id, previous_text?, next_text? }  ->  the audio, streamed
+//        body { text, model_id, previous_text?, next_text?, voice_settings? }  ->  the audio, streamed
+//        voice_settings: stability 0..1 (lower = more varied, more feeling), speed 0.7..1.2 (1 = the voice's own pace)
 //   GET  https://api.elevenlabs.io/v2/voices?page_size=100   ->  { voices: [{ voice_id, name, category, labels, description, preview_url }], has_more, next_page_token }
 //   models: eleven_v4_turbo ("our most expressive, real-time" model), eleven_flash_v2_5 (the fast one before it)
+// And on November 21: Eleven v4 and v4 Turbo take Stability and Similarity only; "Style and Speed sliders are not
+// available in Eleven v4". The Flash models take a speed. So a speed other than 1 is spoken by Flash.
 import { HttpError } from "../_shared/http.ts";
 
 export const API = "https://api.elevenlabs.io";
@@ -14,6 +17,12 @@ export const MAX_TEXT = 800;            // one request is a sentence or a few; a
 export const DAILY_CHARS = 60000;       // about 240 spoken replies a day, a few dollars at most; a loop cannot spend more
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 export type Config = { key: string; model: string; dailyChars: number; voice: string | null };
+export type Feel = "steady" | "natural" | "expressive";
+export type Tune = { speed: number; feel: Feel };   // how she speaks, set by him for every device
+export const PLAIN: Tune = { speed: 1, feel: "natural" };
+export const SPEED_MIN = 0.7, SPEED_MAX = 1.2;
+// Feel is ElevenLabs' stability. Natural sends none, so the voice keeps the settings it was made with.
+export const FEELS: Record<Feel, number | null> = { steady: 0.75, natural: null, expressive: 0.3 };
 export type Voice = { id: string; name: string; category: string; gender: string; accent: string; age: string; use: string; description: string; preview_url: string | null };
 
 export const voiceId = (v: unknown): string | null => typeof v === "string" && /^[A-Za-z0-9]{8,64}$/.test(v) ? v : null;
@@ -28,6 +37,24 @@ export function sayable(text: unknown, max = MAX_TEXT): string | null {
   if (typeof text !== "string") return null;
   const t = text.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
   return t && t.length <= max ? t : null;
+}
+
+// A speed in steps of 0.05 within what ElevenLabs takes, or null.
+export function speedOf(v: unknown): number | null {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() ? Number(v) : NaN;
+  return Number.isFinite(n) && n >= SPEED_MIN - 1e-9 && n <= SPEED_MAX + 1e-9 ? Math.round(n * 20) / 20 : null;
+}
+export const feelOf = (v: unknown): Feel | null => v === "steady" || v === "natural" || v === "expressive" ? v : null;
+export const tuneOf = (row: unknown): Tune => ({ speed: speedOf((row as any)?.speed) ?? 1, feel: feelOf((row as any)?.feel) ?? "natural" });
+export const paced = (t?: Tune | null) => !!t && Math.abs(t.speed - 1) > 1e-9;
+export const takesSpeed = (model: string) => !/^eleven_v[34]/.test(model);   // v3 and v4 have no speed
+// What goes in voice_settings for this model, or null for nothing (the voice as it was made).
+export function voiceSettings(model: string, t?: Tune | null): Record<string, number> | null {
+  if (!t) return null;
+  const out: Record<string, number> = {}, stability = FEELS[t.feel];
+  if (stability != null) out.stability = stability;
+  if (paced(t) && takesSpeed(model)) out.speed = t.speed;
+  return Object.keys(out).length ? out : null;
 }
 
 // ---- the voices in his ElevenLabs account
@@ -54,10 +81,11 @@ export function refused(status: number, body: unknown): HttpError {
   if (about(/quota|credit|limit_reached|insufficient/i) && status !== 429) return new HttpError(402, "voice_quota", "ElevenLabs says this month's credits are used up.");
   if (status === 401 || status === 403) return new HttpError(502, "voice_key", "ElevenLabs did not accept the API key" + (said ? ": " + said : "."));
   if (status === 429) return new HttpError(429, "voice_busy", "ElevenLabs is taking too many requests at once. Try again in a moment.");
-  if (about(/voice/i) && (status === 400 || status === 404 || status === 422)) return new HttpError(409, "voice_gone", "ElevenLabs no longer has that voice. Choose another on the voice page.");
+  if (about(/voice(?!_settings)/i) && (status === 400 || status === 404 || status === 422)) return new HttpError(409, "voice_gone", "ElevenLabs no longer has that voice. Choose another on the voice page.");
   return new HttpError(502, "voice", "ElevenLabs did not produce the audio (" + status + (code ? ", " + code : "") + ").");
 }
 const modelRefused = (status: number, body: unknown) => [400, 403, 404, 422].includes(status) && /model/i.test(JSON.stringify((body as any)?.detail ?? "").slice(0, 600));
+const settingsRefused = (status: number, body: unknown) => [400, 422].includes(status) && /voice_settings|stability|speed/i.test(JSON.stringify((body as any)?.detail ?? "").slice(0, 600));
 
 export async function listVoices(cfg: Config, f: Fetch = (u, i) => fetch(u, i)): Promise<Voice[]> {
   const out: Voice[] = [];
@@ -73,27 +101,28 @@ export async function listVoices(cfg: Config, f: Fetch = (u, i) => fetch(u, i)):
   return out.filter((v, i) => out.findIndex((x) => x.id === v.id) === i);
 }
 // Her words as audio. The answer's body is ElevenLabs' stream, to be passed straight on.
-// If the chosen model is refused the faster, older one is tried once, and remembered for ten minutes.
+// A speed other than 1 is spoken by the Flash model, which has one. If the chosen model is refused the Flash model is
+// tried once, and remembered for ten minutes. If her speed or feel is refused she is asked once more without them,
+// and "settings" says so: "applied", "dropped" or "none" (nothing was asked for).
 let primaryDownUntil = 0;
-export async function speak(cfg: Config, voice: string, text: string, around: { previous?: string | null; next?: string | null } = {}, io: { fetch?: Fetch; now?: () => number } = {}): Promise<{ audio: Response; model: string }> {
-  const f: Fetch = io.fetch ?? ((u, i) => fetch(u, i)), now = io.now ?? (() => Date.now());
-  const ask = (model: string) => f(API + "/v1/text-to-speech/" + voice + "/stream?output_format=" + FORMAT, {
+export async function speak(cfg: Config, voice: string, text: string, around: { previous?: string | null; next?: string | null; tune?: Tune | null } = {}, io: { fetch?: Fetch; now?: () => number } = {}): Promise<{ audio: Response; model: string; settings: "applied" | "dropped" | "none" }> {
+  const f: Fetch = io.fetch ?? ((u, i) => fetch(u, i)), now = io.now ?? (() => Date.now()), tune = around.tune ?? null;
+  const ask = (model: string, settings: Record<string, number> | null) => f(API + "/v1/text-to-speech/" + voice + "/stream?output_format=" + FORMAT, {
     method: "POST", headers: { "xi-api-key": cfg.key, "Content-Type": "application/json", Accept: "audio/mpeg" },
-    body: JSON.stringify({ text, model_id: model, ...(around.previous ? { previous_text: around.previous } : {}), ...(around.next ? { next_text: around.next } : {}) }),
+    body: JSON.stringify({ text, model_id: model, ...(around.previous ? { previous_text: around.previous } : {}), ...(around.next ? { next_text: around.next } : {}), ...(settings ? { voice_settings: settings } : {}) }),
     signal: AbortSignal.timeout(25_000),
   });
-  let model = cfg.model !== FALLBACK_MODEL && now() < primaryDownUntil ? FALLBACK_MODEL : cfg.model, r: Response;
-  try { r = await ask(model); } catch { throw new HttpError(502, "voice", "ElevenLabs did not answer."); }
-  if (!r.ok) {
-    let j = await r.json().catch(() => null);
-    if (model !== FALLBACK_MODEL && modelRefused(r.status, j)) {
-      primaryDownUntil = now() + 600_000; model = FALLBACK_MODEL;
-      try { r = await ask(model); } catch { throw new HttpError(502, "voice", "ElevenLabs did not answer."); }
-      if (r.ok) return { audio: r, model };
-      j = await r.json().catch(() => null);
-    }
+  const wanted = paced(tune) && !takesSpeed(cfg.model) ? FALLBACK_MODEL : cfg.model;
+  let model = wanted !== FALLBACK_MODEL && now() < primaryDownUntil ? FALLBACK_MODEL : wanted, dropped = false;
+  let settings = voiceSettings(model, tune);
+  for (let tries = 0; ; tries++) {
+    let r: Response;
+    try { r = await ask(model, settings); } catch { throw new HttpError(502, "voice", "ElevenLabs did not answer."); }
+    if (r.ok) return { audio: r, model, settings: settings ? "applied" : dropped ? "dropped" : "none" };
+    const j = await r.json().catch(() => null);
+    if (tries < 2 && settings && settingsRefused(r.status, j)) { settings = null; dropped = true; continue; }
+    if (tries < 2 && model !== FALLBACK_MODEL && modelRefused(r.status, j)) { primaryDownUntil = now() + 600_000; model = FALLBACK_MODEL; settings = dropped ? null : voiceSettings(model, tune); continue; }
     throw refused(r.status, j);
   }
-  return { audio: r, model };
 }
 export const forgetModelTrouble = () => { primaryDownUntil = 0; };   // for the checks
