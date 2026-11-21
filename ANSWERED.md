@@ -106,7 +106,8 @@ atlas's numbers. Those stay in the private backend tables or the owner's chat me
   chart-test "zooming out shows more than one session", flow "practice alert", and capture checks that want several
   candles. final-touches "1440px failed option chains" is flaky on GitHub's runners and passes on a re-run
   (`gh api -X POST repos/bongs-git/bongs-git.github.io/actions/runs/<id>/rerun-failed-jobs`). ext-test sets its own
-  clock. Do not chase these: re-run after 10:00 ET, or compare with `main` once.
+  clock. On Saturdays, extra.js "morning check-in starts on the first tap without leaving the screen" fails on `main`
+  too (checked November 21). Do not chase these: re-run after 10:00 ET on a weekday, or compare with `main` once.
 - Where: website `indai/tests/`, `.github/workflows/indai-website-tests.yml`.
 - Stale when: those tests get their own clock.
 - By: Claude (website session).
