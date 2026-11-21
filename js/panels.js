@@ -2,6 +2,7 @@
 import { Panel, C, F, S, text, rrect, fmtPrice, fmtPct, fmtMoney, colorFor, hexA } from './hud.js';
 import { ema, vwap, fmtClock, fmtDuration, fmtHM, marketStatus, chartSession, INTERVAL_LABEL, INTERVAL_MS } from './market.js';
 import { drawingsFor, addDrawing, removeDrawing, clearDrawings, saveDrawings, distToSegment } from './draw.js';
+import { brainsLine } from './brain-meta.js';
 import { LEADLAG } from './feeds.js';
 import { pnlGrid, positionSummary } from './options.js';
 import { STRATEGIES, PROFILES, buildPlan } from './signals.js';
@@ -698,20 +699,59 @@ export class IndaiPanel extends Panel {
       y += 232;
     }
     const maxY = a.y + a.h - 40;
-    const msgs = ind.log.slice(-14);
-    const blocks = [];
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const m = msgs[i];
-      const lines = wrap(ctx, m.text, a.w - 30, 22, F.hud, m.kind === 'you' ? 500 : 400).slice(0, 4);
-      blocks.unshift({ m, lines });
-      if (blocks.reduce((s, b) => s + b.lines.length * 29 + 18, 0) > maxY - y) { blocks.shift(); break; }
+    // Her newest reply is shown in full (a reasoned answer runs to five sentences plus figures); older messages keep
+    // four lines each. A reply too long for the space scrolls with ▲ ▼.
+    const msgs = ind.log.slice(-30);
+    let lastYou = -1; msgs.forEach((m, i) => { if (m.kind === 'you') lastYou = i; });
+    const tail = msgs.length ? msgs[msgs.length - 1] : null;
+    const group = [];
+    for (let i = msgs.length - 1; i > lastYou; i--) { if (tail && tail.t - msgs[i].t > 8000) break; group.unshift(msgs[i]); }
+    const lw = a.w - 30, LH = 29;
+    const colorOf = (m) => m.kind === 'mark' ? C.violet : m.kind === 'alert' ? C.amber : m.kind === 'risk' ? C.down : m.kind === 'good' ? C.up : m.kind === 'you' ? C.gold : C.text;
+    const glines = group.flatMap((m, gi) => wrap(ctx, m.text, lw, 22, F.hud, 500).map((ln, k) => ({ ln, m, gap: gi > 0 && k === 0 })));
+    const tk = this.app.brainMeta && this.app.brainMeta.talk;
+    if (glines.length && tk && tk.about === 'idea' && tk.at >= group[0].t - 1500 && tk.at <= group[group.length - 1].t + 1500) {
+      const an2 = this.app.analysis;
+      glines.unshift({ ln: `Thinking it through${an2 ? ' · ' + ideaLabel(an2.idea) : ''}`, m: { kind: 'mark' }, gap: false });
     }
-    for (const b of blocks) {
-      const you = b.m.kind === 'you';
-      const c = b.m.kind === 'alert' ? C.amber : b.m.kind === 'risk' ? C.down : b.m.kind === 'good' ? C.up : you ? C.gold : C.text;
-      if (you) { ctx.fillStyle = hexA(C.gold, 0.5); ctx.fillRect(a.x, y + 4, 3, b.lines.length * 29); }
-      b.lines.forEach((ln, k) => text(ctx, ln, a.x + 14, y + 24 + k * 29, { size: 22, weight: you ? 500 : 400, color: c }));
-      y += b.lines.length * 29 + 18;
+    const gh = glines.reduce((h, l) => h + LH + (l.gap ? 8 : 0), 0) + (glines.length ? 18 : 0);
+    const room = maxY - y;
+    const key = tail ? tail.t + ':' + msgs.length : '';
+    if (this.replyKey !== key) { this.replyKey = key; this.replyScroll = 0; }
+    if (gh > room && glines.length) {
+      // the reply alone is taller than the space: show a window of it with ▲ ▼
+      const fit = Math.max(3, Math.floor((room - 10) / LH));
+      const maxOff = Math.max(0, glines.length - fit);
+      this.replyScroll = Math.max(0, Math.min(maxOff, this.replyScroll || 0));
+      const off = this.replyScroll;
+      glines.slice(off, off + fit).forEach((l, k) => text(ctx, l.ln, a.x + 14, y + 24 + k * LH, { size: 22, weight: 500, color: colorOf(l.m), max: lw - 50 }));
+      this.button('rep-up', a.x + a.w - 48, y, 48, 44, '▲', { size: 22, disabled: off === 0, onClick: () => { this.replyScroll = Math.max(0, off - (fit - 1)); this.dirty = true; } });
+      this.button('rep-dn', a.x + a.w - 48, y + fit * LH - 40, 48, 44, '▼', { size: 22, disabled: off >= maxOff, onClick: () => { this.replyScroll = Math.min(maxOff, off + (fit - 1)); this.dirty = true; } });
+      this.lastReply = { lines: glines.length, shown: Math.min(fit, glines.length - off), scroll: off, scrolls: true };
+    } else {
+      // older messages, four lines each, above the newest reply
+      const older = [];
+      let used = gh;
+      for (let i = msgs.length - group.length - 1; i >= 0; i--) {
+        const m = msgs[i];
+        const lines = wrap(ctx, m.text, lw, 22, F.hud, 500).slice(0, 4);
+        const h = lines.length * LH + 18;
+        if (used + h > room) break;
+        used += h; older.unshift({ m, lines });
+      }
+      for (const b of older) {
+        const you = b.m.kind === 'you';
+        if (you) { ctx.fillStyle = hexA(C.gold, 0.5); ctx.fillRect(a.x, y + 4, 3, b.lines.length * LH); }
+        b.lines.forEach((ln, k) => text(ctx, ln, a.x + 14, y + 24 + k * LH, { size: 22, weight: 500, color: colorOf(b.m) }));
+        y += b.lines.length * LH + 18;
+      }
+      if (glines.length) {
+        // a faint rule marks where her newest reply starts
+        ctx.fillStyle = hexA(C.gold, 0.18); ctx.fillRect(a.x, y + 4, 3, gh - 18);
+        let yy = y;
+        for (const l of glines) { if (l.gap) yy += 8; text(ctx, l.ln, a.x + 14, yy + 24, { size: 22, weight: 500, color: colorOf(l.m) }); yy += LH; }
+      }
+      this.lastReply = { lines: glines.length, shown: glines.length, scroll: 0, scrolls: false };
     }
     text(ctx, ind.voice.canListen ? 'Hold A or X, tap Talk, or pinch the orb · “Hey INDAI, QQQ calls today, 665 strike”' : 'Voice input is not available here; use the buttons', a.x, a.y + a.h - 6, { size: 18, weight: 500, color: C.faint, max: a.w });
   }
@@ -734,6 +774,13 @@ export class AnalysisPanel extends Panel {
     text(ctx, `${an.score.score}/100`, L.x + L.w - 26, y + 54, { size: 30, weight: 600, fam: F.mono, color: C.white, align: 'right' });
     text(ctx, an.final ? `research ${an.final.confidence ?? '—'}% confident` : an.pendingAI ? 'researching news…' : 'quant read', L.x + L.w - 26, y + 90, { size: 19, weight: 500, color: C.dim, align: 'right' });
     y += 140;
+    // who worked on it: research, verdict, second opinion (only when the server says; an older server shows nothing new)
+    const bm = app.brainMeta && app.brainMeta.trade, bl = an.final && bm && bm.at >= (an.at || 0) ? brainsLine(bm.brains, an.final) : null;
+    if (bl) {
+      if (bl.line) y += para(ctx, bl.line, L.x, y + 4, L.w, { size: 19, color: C.dim, maxLines: 3 }) + 2;
+      if (bl.trouble) y += para(ctx, bl.trouble, L.x, y + 4, L.w, { size: 18, color: C.faint, maxLines: 2 }) + 2;
+      y += 8;
+    }
     if (an.score.gate) { y += para(ctx, an.score.gate, L.x, y + 22, L.w, { size: 22, color: C.down, weight: 600 }) + 6; }
     const k = an.contract, qd = an.quant;
     const rowsL = [

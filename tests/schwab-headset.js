@@ -80,8 +80,8 @@ const ready = (page, geo = true) => page.waitForFunction((g) => window.__indai &
       await page.waitForFunction(() => window.__indai.app.schwabLive && window.__indai.app.schwabLive.state === 'live', null, { timeout: 12000 }).catch(() => {});
       const st = await page.evaluate(() => { const a = window.__indai.app; return { live: a.schwabLive && a.schwabLive.state, tracked: a.feed.trackedSymbols, last: a.feed.quote('SPY').last }; });
       check('[open] with the passcode the headset opens Schwab\'s stream and subscribes to what it tracks', st.live === 'live' && s.logins.length === 1 && s.logins[0].parameters.Authorization === TOKEN && s.subs.length >= 1 && s.subs[0].keys.split(',').includes('SPY'), { st, subs: s.subs });
-      const mk = b.headers.filter(h => h.path.endsWith('/indai-market')), other = b.headers.filter(h => !h.path.endsWith('/indai-market') && !h.path.endsWith('/indai-schwab'));
-      check('[open] every price request carries the passcode, and nothing else gets it', mk.length > 0 && mk.every(h => h.pass) && other.every(h => !h.pass), { market: mk.length, leaks: other.filter(h => h.pass) });
+      const mk = b.headers.filter(h => h.path.endsWith('/indai-market')), other = b.headers.filter(h => !h.path.endsWith('/indai-market') && !h.path.endsWith('/indai-schwab') && !h.path.endsWith('/indai-voice'));   // her hosted voice needs it too (PAP-3)
+      check('[open] every price request carries the passcode, and nothing else gets it (besides her own voice service)', mk.length > 0 && mk.every(h => h.pass) && other.every(h => !h.pass), { market: mk.length, leaks: other.filter(h => h.pass) });
       await sleep(300);
       const first = await page.evaluate(() => ({ ticks: window.__indai.app.schwabLive.ticks, last: window.__indai.app.feed.quote('SPY').last }));
       check('[open] the first message after subscribing (an old trade) is not a trade', first.ticks === 0 && first.last === 699, first);

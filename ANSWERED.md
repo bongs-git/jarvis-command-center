@@ -17,6 +17,9 @@ atlas's numbers. Those stay in the private backend tables or the owner's chat me
 ## Index
 
 - 2026-11-21 · Can her hosted voice be faster or slower, or more expressive?
+- 2026-11-21 · How do ChatGPT and Perplexity follow the same credit-saving skills?
+- 2026-11-21 · Which headset requests carry the owner's passcode?
+- 2026-11-21 · Which headset (Quest app) emulator test failures are timing, not bugs?
 - 2026-11-21 · Talk answers cut off: what limit does talk need?
 - 2026-11-20 · Where do option chains, GEX and daily history come from now that CBOE blocks us?
 - 2026-11-20 · Which paid or free options-data providers were compared, and what do they cost?
@@ -38,9 +41,34 @@ atlas's numbers. Those stay in the private backend tables or the owner's chat me
   stability: steady 0.75, expressive 0.3, natural sends none. Unknown until heard: whether v4 takes 0.75 and 0.3 (v3
   took only 0, 0.5, 1); if not, she is asked again without them and Settings says so.
 - Where: `supabase/indai-voice/voice.ts`, migration `20261121155940_indai_voice_tune.sql`, OPERATIONS.md "Her
-  hosted voice"; website `indai/js/voice-tune.js` (website PR #5).
+  hosted voice"; website `indai/js/voice-tune.js` (website PR #5, merged).
 - Stale when: ElevenLabs gives v4 a speed, or her model changes.
 - By: Ikpa, November 21.
+
+### 2026-11-21 · How do ChatGPT and Perplexity follow the same credit-saving skills?
+- Answer: they cannot load Claude skills. `handoff/PARTNER-PLAYBOOK.md` is the same playbook in plain words: check
+  this ledger first, reuse answers that are not stale, re-check only time-sensitive parts, end with an "ANSWERED
+  entry" that a Claude bot logs. Its last section has short instructions to paste into the ChatGPT INDAI project and
+  the Perplexity INDAI space. Both partner briefs now point to it.
+- Where: `handoff/PARTNER-PLAYBOOK.md`, `handoff/PERPLEXITY-BRIEF.md`, `handoff/CHATGPT-FRONTEND-HANDOFF.md`.
+- Stale when: a partner gets repository access (then it adds entries itself), or the skills change.
+- By: Claude (website session).
+
+### 2026-11-21 · Which headset requests carry the owner's passcode?
+- Answer: on the Quest app (`/jarvis-command-center/`), `x-indai-pass` goes to `indai-market` (his Schwab prices,
+  added by `js/owner-feed.js`), `indai-schwab` (the stream's sign-in details), `indai-voice` (her hosted voice,
+  `js/cloud-voice.js`) and `indai-brain` (research, as before). Nothing else, and none of them without a saved
+  passcode; in demo mode there is no `indai-schwab` or `indai-voice` request. Checked with stand-ins in
+  `tests/schwab-headset.js` and `tests/voice-headset.js` (Papilo, PRs #23 to #25).
+- Stale when: `owner-feed.js` or `cloud-voice.js` change on the website and are copied again.
+
+### 2026-11-21 · Which headset (Quest app) emulator test failures are timing, not bugs?
+- Answer: the WebXR emulator (IWER) under SwiftShader draws only a few frames a second. A controller needs about a
+  second after it is aimed before a press lands on the right button, so a scene-tile click can miss with shorter
+  waits. Two presses can't come closer than about 650 ms, which is longer than the 500 ms double-pinch window, so
+  double-pinch (chart reset, a window up front) is tested in the 2D preview with the mouse instead, where it passes.
+  None of these are app bugs.
+- Stale when: the tests run on a GPU, or the double-pinch window changes (`js/panels.js`, `js/main.js`).
 
 ### 2026-11-21 · Talk answers cut off: what limit does talk need?
 - Answer: `claude-haiku-5-5` thinks before it answers and the thinking counts against `max_tokens`. At 700, a
@@ -116,9 +144,9 @@ atlas's numbers. Those stay in the private backend tables or the owner's chat me
 ### 2026-11-20 · Which website test failures are the time of day, not a bug?
 - Answer: in roughly the first 15 minutes after the open the demo data has one day, and these fail on `main` too:
   chart-test "zooming out shows more than one session", flow "practice alert", and capture checks that want several
-  candles. Until website PR #5 (November 21), extra.js "morning check-in starts on the first tap" also failed every
-  weekend and holiday morning: it checked only the hour, while the app starts a check-in on trading days only; it now
-  reads `isTradingDay` from `js/market.js`. final-touches "1440px failed option chains" is flaky on GitHub's runners and passes on a re-run
+  candles. Until website PR #5 (merged November 21), extra.js "morning check-in starts on the first tap" also failed
+  every weekend and holiday morning, on `main` too: it checked only the hour, while the app starts a check-in on
+  trading days only; it now reads `isTradingDay` from `js/market.js`. final-touches "1440px failed option chains" is flaky on GitHub's runners and passes on a re-run
   (`gh api -X POST repos/bongs-git/bongs-git.github.io/actions/runs/<id>/rerun-failed-jobs`). ext-test sets its own
   clock. Do not chase these: re-run after 10:00 ET, or compare with `main` once.
 - Where: website `indai/tests/`, `.github/workflows/indai-website-tests.yml`.
