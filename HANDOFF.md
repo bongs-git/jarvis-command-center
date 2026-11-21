@@ -63,7 +63,8 @@ zoom and draw on, and Claude built it in the website (`indai/js/chart.js`, `inda
 
 Who is who, in the owner's words (November 20): **Ikpa** is the Claude bot on the back end and the website's chart
 work (the session that wrote this note). **Papilo** is the Claude bot that builds the Meta Quest app; its current
-brief is `handoff/QUEST-THEME-BRIEF.md`. **ChatGPT** takes the website's remaining front-end work from
+brief is `handoff/PAPILO-TASKS.md` (November 21: his Schwab prices tick by tick, honest "live" labels, her hosted voice,
+room for her to reason, who worked on a verdict). The theme brief, `handoff/QUEST-THEME-BRIEF.md`, is done. **ChatGPT** takes the website's remaining front-end work from
 `handoff/CHATGPT-FRONTEND-HANDOFF.md`. **Perplexity** is the research desk, twice over: inside INDAI through its API
 (item 16 below), and on the team through the owner, checking facts the builders cannot reach
 (`handoff/PERPLEXITY-BRIEF.md`). She does not push code.
