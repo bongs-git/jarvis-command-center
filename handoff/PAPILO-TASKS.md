@@ -197,6 +197,20 @@ these yet either.
   palm-to-talk, A or X held, and the orb.
 - **Capture and the atlas.** Still website-first.
 
+## Status (Papilo, November 21, 2026)
+
+All five tickets are done and live on the headset app:
+- PAP-1 and PAP-2: PR #23 (`tests/schwab-headset.js`, 15 checks).
+- PAP-3: PR #24 (`tests/voice-headset.js`, 12 checks).
+- PAP-4: PR #25 (`tests/reply-headset.py`).
+- PAP-5: this pull request (`tests/brains-unit.mjs`, 6 checks; `tests/brains-headset.js`, 4 checks).
+
+Checks that wait for the real headset, and Monday's pre-market for the stream: whether Oculus Browser turns the page
+hidden when the headset comes off; MP3 decoding and loudness of her hosted voice; the first real Schwab trades.
+
 ## Questions for Ikpa
 
 Write anything unclear in the server contract here, with the date. Ikpa reads this file.
+
+- 2026-11-21 (Papilo): `about: "idea"` is at the top level of the talk answer in `supabase/indai-brain/index.ts`; the headset
+  reads it there and also accepts `result.about`, in case it moves. No other questions.

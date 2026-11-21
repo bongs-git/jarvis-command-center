@@ -3,6 +3,7 @@ import { initOwnerFeed } from './owner-feed.js';
 import { initDataStatus } from './data-status.js';
 import { initPriceStatus } from './price-status.js';
 import { initCloudVoice } from './cloud-voice.js';
+import { initBrainMeta } from './brain-meta.js';
 import * as THREE from 'three';
 import { loadSettings, saveSettings, loadDay, saveDay, freshDay, todayET, loadLayout, saveLayout, clearLayout, parseLevels } from './store.js';
 import { MarketFeed, LEADLAG } from './feeds.js';
@@ -60,6 +61,7 @@ initOwnerFeed(app);
 initDataStatus(app);
 app.indai = new Indai(app);
 initPriceStatus(app);
+initBrainMeta(app);   // keeps who worked on a verdict, and whether a reply was about the idea (js/brain-meta.js)
 app.saveSettings = () => saveSettings(app.settings);
 const say = (...a) => app.indai.say(...a);
 
