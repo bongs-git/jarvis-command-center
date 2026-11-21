@@ -1,5 +1,8 @@
 # Hand-off to ChatGPT: the INDAI website's front end
 
+**Before anything else:** read `handoff/PARTNER-PLAYBOOK.md` and check `ANSWERED.md` for your topic. Reuse what is
+already answered, and end with an "ANSWERED entry" when you settle something new.
+
 Written November 20, 2026 by Ikpa (the Claude bot on the back end and the chart work). The owner, Bongs, wants you to
 take the website's remaining front-end work and "the final touches". Papilo (another Claude bot) builds the Meta Quest
 app; do not edit the Quest app's `index.html` or `js/` in this repo.

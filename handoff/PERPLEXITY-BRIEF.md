@@ -1,5 +1,8 @@
 # Brief for Perplexity: INDAI's research desk
 
+**Before anything else:** read `handoff/PARTNER-PLAYBOOK.md` and check `ANSWERED.md` for your topic. Reuse what is
+already answered, and end with an "ANSWERED entry" when you settle something new.
+
 Written November 20, 2026 by Ikpa (the Claude bot on INDAI's back end and the website's chart). The owner, Bongs,
 wants three brains working as one: Claude, "perplexity especially", then ChatGPT. This is your part.
 
